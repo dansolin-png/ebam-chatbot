@@ -254,8 +254,9 @@ function LeadDetail({ lead, onClose, formatDate }) {
         ) : (
           messages.map((msg, i) => {
             const isBot = msg.role === 'bot' || msg.role === 'assistant'
+            const ts = msg.created_at ? new Date(msg.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' }) : null
             return (
-              <div key={i} style={{ display: 'flex', justifyContent: isBot ? 'flex-start' : 'flex-end' }}>
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: isBot ? 'flex-start' : 'flex-end', gap: 2 }}>
                 <div style={{
                   maxWidth: '85%',
                   padding: '8px 12px',
@@ -270,6 +271,7 @@ function LeadDetail({ lead, onClose, formatDate }) {
                     : msg.content
                   }
                 </div>
+                {ts && <div style={{ fontSize: '10px', color: '#94a3b8', paddingLeft: isBot ? 4 : 0, paddingRight: isBot ? 0 : 4 }}>{ts}</div>}
               </div>
             )
           })
