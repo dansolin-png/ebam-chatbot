@@ -537,16 +537,26 @@ function InputEditor({ state, allStateIds, onUpdate }) {
 // ---------------------------------------------------------------------------
 function LLMEditor({ state, allStateIds, onUpdate }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-      <Field label="Next State" hint="State to return to after LLM responds">
-        <StateSelect value={state.next || ''} allStateIds={allStateIds}
-          onChange={v => onUpdate({ ...state, next: v })} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Field label="Prompt Template" hint="Leave empty to use message history. Use {{input}}, {{name}}, {{email}} etc.">
+        <textarea style={{ ...s.textarea, fontFamily: 'monospace', fontSize: '12px' }}
+          rows={4}
+          placeholder="e.g. A user said: '{{input}}'. Respond warmly in 2–3 sentences."
+          value={state.prompt_template || ''}
+          onChange={e => onUpdate({ ...state, prompt_template: e.target.value })} />
       </Field>
 
-      <Field label="Fallback State">
-        <StateSelect value={state.fallback || ''} allStateIds={allStateIds}
-          onChange={v => onUpdate({ ...state, fallback: v })} />
-      </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <Field label="Next State" hint="State to return to after LLM responds">
+          <StateSelect value={state.next || ''} allStateIds={allStateIds}
+            onChange={v => onUpdate({ ...state, next: v })} />
+        </Field>
+
+        <Field label="Fallback State">
+          <StateSelect value={state.fallback || ''} allStateIds={allStateIds}
+            onChange={v => onUpdate({ ...state, fallback: v })} />
+        </Field>
+      </div>
     </div>
   )
 }
