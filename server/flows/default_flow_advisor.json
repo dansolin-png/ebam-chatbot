@@ -1,0 +1,105 @@
+{
+  "start": {
+    "state_id": "start",
+    "type": "choice",
+    "message": "What would you like to know about AI avatar videos for your practice?",
+    "options": [
+      "Why should I use avatar videos?",
+      "Is it authentic?",
+      "What does it cost?",
+      "Compliance concerns?",
+      "I'm not tech-savvy",
+      "My clients are older"
+    ],
+    "transitions": {
+      "Why should I use avatar videos?": "ask_name",
+      "Is it authentic?": "ask_name",
+      "What does it cost?": "ask_name",
+      "Compliance concerns?": "ask_name",
+      "I'm not tech-savvy": "ask_name",
+      "My clients are older": "ask_name"
+    },
+    "option_config": {
+      "Why should I use avatar videos?": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      },
+      "Is it authentic?": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      },
+      "What does it cost?": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      },
+      "Compliance concerns?": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      },
+      "I'm not tech-savvy": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      },
+      "My clients are older": {
+        "mode": "llm",
+        "llm_prompt": "",
+        "next": "llm_chat"
+      }
+    },
+    "fallback": "handle_objection"
+  },
+  "llm_chat": {
+    "state_id": "llm_chat",
+    "type": "llm",
+    "prompt_template": "",
+    "next": "llm_chat",
+    "options": ["I'd like to get in touch"],
+    "transitions": {
+      "I'd like to get in touch": "ask_name"
+    },
+    "fallback": "ask_name"
+  },
+  "ask_name": {
+    "state_id": "ask_name",
+    "type": "input",
+    "message": "I'd love to share more details with you. What's your name?",
+    "capture": "name",
+    "next": "ask_email",
+    "fallback": "handle_objection"
+  },
+  "ask_email": {
+    "state_id": "ask_email",
+    "type": "input",
+    "message": "What's the best email address to reach you?",
+    "capture": "email",
+    "next": "ask_phone",
+    "fallback": "handle_objection"
+  },
+  "ask_phone": {
+    "state_id": "ask_phone",
+    "type": "input",
+    "message": "And your phone number? (Optional — you can skip this.)",
+    "capture": "phone",
+    "optional": true,
+    "next": "end",
+    "fallback": "end"
+  },
+  "end": {
+    "state_id": "end",
+    "type": "end",
+    "message": "Thank you! A member of our team will reach out within 24 hours to show you exactly how Evidence Based Advisor Marketing can help your practice grow.",
+    "user_type": "advisor"
+  },
+  "handle_objection": {
+    "state_id": "handle_objection",
+    "type": "llm",
+    "prompt_template": "A financial advisor said: '{{input}}'.\nRespond warmly and professionally, address their concern, and gently guide them back to the conversation. Keep it to 2–3 sentences.",
+    "next": "return_to_previous",
+    "fallback": "start"
+  }
+}

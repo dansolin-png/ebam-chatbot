@@ -1,0 +1,25 @@
+{
+  "name": "ebam-chatbot-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:widget": "vite build --config vite.widget.config.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "^2.10.4",
+    "axios": "^1.7.7",
+    "preact": "^10.29.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@vitejs/plugin-react": "^4.3.2",
+    "vite": "^5.4.8"
+  }
+}
