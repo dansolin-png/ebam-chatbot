@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session as DBSession
 from database import get_db
 from models import Lead, Session, Message
+from routes.auth import verify_token
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
+def require_auth(authorization: str | None = Header(default=None)):
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if not verify_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @router.delete("/all")
-def clear_all_data(db: DBSession = Depends(get_db)):
+def clear_all_data(db: DBSession = Depends(get_db), _=Depends(require_auth)):
     """Delete all leads, sessions, and messages (for dev/testing cleanup)."""
     db.query(Lead).delete()
     db.query(Message).delete()
@@ -17,7 +24,7 @@ def clear_all_data(db: DBSession = Depends(get_db)):
 
 
 @router.get("/")
-def list_leads(db: DBSession = Depends(get_db)):
+def list_leads(db: DBSession = Depends(get_db), _=Depends(require_auth)):
     leads = db.query(Lead).order_by(Lead.created_at.desc()).all()
     return [
         {

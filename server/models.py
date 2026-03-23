@@ -56,6 +56,15 @@ class FlowConfig(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    username = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ChatbotConfig(Base):
     """
     Stores the editable chatbot configuration:

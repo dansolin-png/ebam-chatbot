@@ -39,6 +39,15 @@ def get_state(flow: dict, state_id: str) -> dict | None:
     return flow.get(state_id)
 
 
+def _interpolate(text: str, collected_data: dict) -> str:
+    """Replace {{variable}} placeholders in bot messages with collected data."""
+    if not text:
+        return text
+    for key, val in collected_data.items():
+        text = text.replace(f"{{{{{key}}}}}", str(val))
+    return text
+
+
 async def process_message(
     flow: dict,
     current_state_id: str,
@@ -234,9 +243,10 @@ async def process_message(
 
         captured = {capture_field: value} if capture_field and value else {}
         next_state = get_state(flow, next_state_id)
+        merged = {**collected_data, **captured}
         return {
             "next_state_id": next_state_id,
-            "bot_message": next_state.get("message", ""),
+            "bot_message": _interpolate(next_state.get("message", ""), merged),
             "bot_options": next_state.get("options"),
             "captured": captured,
             "is_end": next_state.get("type") == "end",
@@ -257,7 +267,7 @@ async def process_message(
                 next_state = get_state(flow, next_state_id)
                 return {
                     "next_state_id": next_state_id,
-                    "bot_message": next_state.get("message", ""),
+                    "bot_message": _interpolate(next_state.get("message", ""), collected_data),
                     "bot_options": next_state.get("options"),
                     "captured": {},
                     "is_end": next_state.get("type") == "end",
@@ -299,7 +309,7 @@ async def process_message(
     elif state_type == "end":
         return {
             "next_state_id": current_state_id,
-            "bot_message": state.get("message", "Thank you!"),
+            "bot_message": _interpolate(state.get("message", "Thank you!"), collected_data),
             "bot_options": None,
             "captured": {},
             "is_end": True,

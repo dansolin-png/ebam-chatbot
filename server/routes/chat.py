@@ -177,10 +177,13 @@ async def send_message(req: MessageRequest, db: DBSession = Depends(get_db)):
             new_data[k] = v
     session.collected_data = new_data
 
-    # End state → mark complete and save lead
+    # Save lead as soon as we have name + email (captures abandoned sessions too)
+    if new_data.get("name") and new_data.get("email"):
+        _save_lead(session, db)
+
+    # End state → mark complete
     if result["is_end"]:
         session.is_complete = True
-        _save_lead(session, db)
 
     # Save bot message
     db.add(Message(session_id=session.id, role="bot", content=result["bot_message"], state_id=result["next_state_id"]))

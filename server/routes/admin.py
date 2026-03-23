@@ -1,12 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session as DBSession
 from pydantic import BaseModel
 from database import get_db
 from models import FlowConfig, Session, Message, Lead, ChatbotConfig
 from state_machine import load_default_flow
 from prompts import CHAT_CONFIG as DEFAULT_CONFIG
+from routes.auth import verify_token
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def require_auth(authorization: str | None = Header(default=None)):
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if not verify_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +29,7 @@ def _get_config(db: DBSession) -> dict:
 
 
 @router.get("/chatbot-config")
-def get_chatbot_config(db: DBSession = Depends(get_db)):
+def get_chatbot_config(db: DBSession = Depends(get_db), _=Depends(require_auth)):
     return _get_config(db)
 
 
@@ -31,7 +38,7 @@ class ChatbotConfigRequest(BaseModel):
 
 
 @router.put("/chatbot-config")
-def save_chatbot_config(req: ChatbotConfigRequest, db: DBSession = Depends(get_db)):
+def save_chatbot_config(req: ChatbotConfigRequest, db: DBSession = Depends(get_db), _=Depends(require_auth)):
     row = db.query(ChatbotConfig).filter(ChatbotConfig.id == "active").first()
     if row:
         row.config_json = req.config
@@ -43,7 +50,7 @@ def save_chatbot_config(req: ChatbotConfigRequest, db: DBSession = Depends(get_d
 
 
 @router.post("/chatbot-config/reset")
-def reset_chatbot_config(db: DBSession = Depends(get_db)):
+def reset_chatbot_config(db: DBSession = Depends(get_db), _=Depends(require_auth)):
     row = db.query(ChatbotConfig).filter(ChatbotConfig.id == "active").first()
     if row:
         db.delete(row)
@@ -63,7 +70,7 @@ class FlowRequest(BaseModel):
 
 
 @router.get("/flow/{audience}")
-def get_flow(audience: str, db: DBSession = Depends(get_db)):
+def get_flow(audience: str, db: DBSession = Depends(get_db), _=Depends(require_auth)):
     """Return the flow JSON for the given audience (DB override or default file)."""
     if audience not in VALID_AUDIENCES:
         from fastapi import HTTPException
@@ -75,7 +82,7 @@ def get_flow(audience: str, db: DBSession = Depends(get_db)):
 
 
 @router.put("/flow/{audience}")
-def save_flow(audience: str, req: FlowRequest, db: DBSession = Depends(get_db)):
+def save_flow(audience: str, req: FlowRequest, db: DBSession = Depends(get_db), _=Depends(require_auth)):
     if audience not in VALID_AUDIENCES:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown audience '{audience}'")
@@ -90,7 +97,7 @@ def save_flow(audience: str, req: FlowRequest, db: DBSession = Depends(get_db)):
 
 
 @router.post("/flow/{audience}/reset")
-def reset_flow(audience: str, db: DBSession = Depends(get_db)):
+def reset_flow(audience: str, db: DBSession = Depends(get_db), _=Depends(require_auth)):
     if audience not in VALID_AUDIENCES:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown audience '{audience}'")
@@ -106,7 +113,7 @@ def reset_flow(audience: str, db: DBSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/stats")
-def get_stats(db: DBSession = Depends(get_db)):
+def get_stats(db: DBSession = Depends(get_db), _=Depends(require_auth)):
     total_sessions    = db.query(Session).count()
     completed_sessions = db.query(Session).filter(Session.is_complete == True).count()
     total_leads       = db.query(Lead).count()

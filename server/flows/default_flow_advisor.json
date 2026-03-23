@@ -1,6 +1,22 @@
 {
   "start": {
     "state_id": "start",
+    "type": "input",
+    "message": "Great! Before we dive in — what's your name?",
+    "capture": "name",
+    "next": "ask_email",
+    "fallback": "ask_email"
+  },
+  "ask_email": {
+    "state_id": "ask_email",
+    "type": "input",
+    "message": "Thanks {{name}}! What's the best email address to reach you?",
+    "capture": "email",
+    "next": "choose_topic",
+    "fallback": "choose_topic"
+  },
+  "choose_topic": {
+    "state_id": "choose_topic",
     "type": "choice",
     "message": "What would you like to know about AI avatar videos for your practice?",
     "options": [
@@ -12,44 +28,20 @@
       "My clients are older"
     ],
     "transitions": {
-      "Why should I use avatar videos?": "ask_name",
-      "Is it authentic?": "ask_name",
-      "What does it cost?": "ask_name",
-      "Compliance concerns?": "ask_name",
-      "I'm not tech-savvy": "ask_name",
-      "My clients are older": "ask_name"
+      "Why should I use avatar videos?": "llm_chat",
+      "Is it authentic?": "llm_chat",
+      "What does it cost?": "llm_chat",
+      "Compliance concerns?": "llm_chat",
+      "I'm not tech-savvy": "llm_chat",
+      "My clients are older": "llm_chat"
     },
     "option_config": {
-      "Why should I use avatar videos?": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      },
-      "Is it authentic?": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      },
-      "What does it cost?": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      },
-      "Compliance concerns?": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      },
-      "I'm not tech-savvy": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      },
-      "My clients are older": {
-        "mode": "llm",
-        "llm_prompt": "",
-        "next": "llm_chat"
-      }
+      "Why should I use avatar videos?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "Is it authentic?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "What does it cost?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "Compliance concerns?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "I'm not tech-savvy": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "My clients are older": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" }
     },
     "fallback": "handle_objection"
   },
@@ -60,39 +52,14 @@
     "next": "llm_chat",
     "options": ["I'd like to get in touch"],
     "transitions": {
-      "I'd like to get in touch": "ask_name"
+      "I'd like to get in touch": "end"
     },
-    "fallback": "ask_name"
-  },
-  "ask_name": {
-    "state_id": "ask_name",
-    "type": "input",
-    "message": "I'd love to share more details with you. What's your name?",
-    "capture": "name",
-    "next": "ask_email",
-    "fallback": "handle_objection"
-  },
-  "ask_email": {
-    "state_id": "ask_email",
-    "type": "input",
-    "message": "What's the best email address to reach you?",
-    "capture": "email",
-    "next": "ask_phone",
-    "fallback": "handle_objection"
-  },
-  "ask_phone": {
-    "state_id": "ask_phone",
-    "type": "input",
-    "message": "And your phone number? (Optional — you can skip this.)",
-    "capture": "phone",
-    "optional": true,
-    "next": "end",
     "fallback": "end"
   },
   "end": {
     "state_id": "end",
     "type": "end",
-    "message": "Thank you! A member of our team will reach out within 24 hours to show you exactly how Evidence Based Advisor Marketing can help your practice grow.",
+    "message": "Thank you {{name}}! A member of our team will reach out to {{email}} within 24 hours to show you exactly how Evidence Based Advisor Marketing can help your practice grow.",
     "user_type": "advisor"
   },
   "handle_objection": {
@@ -100,6 +67,6 @@
     "type": "llm",
     "prompt_template": "A financial advisor said: '{{input}}'.\nRespond warmly and professionally, address their concern, and gently guide them back to the conversation. Keep it to 2–3 sentences.",
     "next": "return_to_previous",
-    "fallback": "start"
+    "fallback": "choose_topic"
   }
 }

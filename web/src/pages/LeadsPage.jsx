@@ -23,20 +23,18 @@ export default function LeadsPage() {
 
   async function handleClearAll() {
     if (!confirm('Delete ALL leads, sessions, and messages? This cannot be undone.')) return
-    await fetch('/api/leads/all', { method: 'DELETE' })
+    const token = localStorage.getItem('ebam_token') || ''
+    await fetch('/api/leads/all', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     setLeads([])
     setSelectedLead(null)
   }
 
   function downloadCSV() {
-    const headers = ['Name', 'Email', 'Phone', 'Type', 'Concern', 'Budget', 'Date']
+    const headers = ['Name', 'Email', 'Type', 'Date']
     const rows = filtered.map(l => [
       l.name || '',
       l.email || '',
-      l.phone || '',
       l.user_type || '',
-      l.collected_data?.concern || l.collected_data?.cpa_interest || '',
-      l.collected_data?.budget || '',
       formatDate(l.created_at),
     ])
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
@@ -116,7 +114,7 @@ export default function LeadsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['Name', 'Email', 'Phone', 'Type', 'Concern / Interest', 'Captured'].map(h => (
+                    {['Name', 'Email', 'Type', 'Captured'].map(h => (
                       <th key={h} style={{
                         padding: '12px 16px',
                         textAlign: 'left',
@@ -145,7 +143,6 @@ export default function LeadsPage() {
                     >
                       <td style={tdStyle}>{lead.name || <span style={{ color: '#94a3b8' }}>—</span>}</td>
                       <td style={tdStyle}>{lead.email || <span style={{ color: '#94a3b8' }}>—</span>}</td>
-                      <td style={tdStyle}>{lead.phone || <span style={{ color: '#94a3b8' }}>—</span>}</td>
                       <td style={tdStyle}>
                         {lead.user_type && (
                           <span style={{
@@ -160,9 +157,6 @@ export default function LeadsPage() {
                             {lead.user_type}
                           </span>
                         )}
-                      </td>
-                      <td style={tdStyle}>
-                        {lead.collected_data?.concern || lead.collected_data?.cpa_interest || <span style={{ color: '#94a3b8' }}>—</span>}
                       </td>
                       <td style={{ ...tdStyle, color: '#94a3b8', fontSize: '12px' }}>
                         {formatDate(lead.created_at)}
@@ -232,9 +226,6 @@ function LeadDetail({ lead, onClose, formatDate }) {
             </Chip>
           )}
           {lead.phone && <Chip color="gray">📞 {lead.phone}</Chip>}
-          {(lead.collected_data?.concern || lead.collected_data?.cpa_interest) && (
-            <Chip color="gray">{lead.collected_data.concern || lead.collected_data.cpa_interest}</Chip>
-          )}
         </div>
         <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: 8 }}>
           Captured {formatDate(lead.created_at)}
