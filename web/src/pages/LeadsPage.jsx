@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getLeadsList as getLeads } from '../api/admin.js'
 import { renderMessageHtml } from '../utils/renderMessage.js'
+import { API_BASE } from '../api/base.js'
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState([])
@@ -184,7 +185,7 @@ function LeadDetail({ lead, onClose, formatDate }) {
 
   useEffect(() => {
     setLoadingMsgs(true)
-    fetch(`/api/chat/history/${lead.session_id}`)
+    fetch(API_BASE + `/api/chat/history/${lead.session_id}`)
       .then(r => r.json())
       .then(setMessages)
       .catch(() => setMessages([]))

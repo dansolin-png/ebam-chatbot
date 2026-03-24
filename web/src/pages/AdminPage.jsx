@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow } from '../api/admin.js'
-
 import FlowEditor from '../components/FlowEditor.jsx'
-import { renderMessageHtml } from '../utils/renderMessage.js'
+import RichTextEditor from '../components/RichTextEditor.jsx'
 
 const NAVY = '#0d1b2a'
 
@@ -93,13 +92,15 @@ export default function AdminPage() {
 
       {/* Greeting Message */}
       {config && (
-        <HtmlField
-          title="Greeting Message"
-          hint="Shown to every visitor before they select their audience."
-          value={config.greeting || ''}
-          onChange={v => setConfig(c => ({ ...c, greeting: v }))}
-          rows={4}
-        />
+        <div style={st.card}>
+          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Greeting Message</div>
+          <div style={{ ...st.sectionHint, marginBottom: 10 }}>Shown to every visitor before they select their audience.</div>
+          <RichTextEditor
+            value={config.greeting || ''}
+            onChange={v => setConfig(c => ({ ...c, greeting: v }))}
+            minHeight={80}
+          />
+        </div>
       )}
 
       {/* Per-audience sections */}
@@ -121,38 +122,6 @@ export default function AdminPage() {
   )
 }
 
-function HtmlField({ title, hint, value, onChange, rows = 3 }) {
-  const [preview, setPreview] = useState(false)
-  return (
-    <div style={st.card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <div>
-          <div style={st.sectionTitle}>{title}</div>
-          {hint && <div style={st.sectionHint}>{hint}</div>}
-        </div>
-        <button
-          style={{ fontSize: '11px', padding: '3px 10px', border: '1px solid #e2e8f0', borderRadius: 4, background: preview ? '#f1f5f9' : '#fff', cursor: 'pointer', color: '#64748b' }}
-          onClick={() => setPreview(v => !v)}
-        >
-          {preview ? 'Edit' : 'Preview'}
-        </button>
-      </div>
-      {preview ? (
-        <div
-          style={{ ...st.textarea, minHeight: rows * 22 + 20, backgroundColor: '#fff' }}
-          dangerouslySetInnerHTML={{ __html: renderMessageHtml(value) || '<span style="color:#94a3b8">Empty</span>' }}
-        />
-      ) : (
-        <textarea
-          style={{ ...st.textarea, height: rows * 22 + 20 }}
-          value={value}
-          placeholder="Supports **bold**, HTML tags, and double newlines for paragraph breaks."
-          onChange={e => onChange(e.target.value)}
-        />
-      )}
-    </div>
-  )
-}
 
 function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudienceChange, onFlowChange }) {
   return (

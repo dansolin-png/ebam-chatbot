@@ -1,28 +1,29 @@
-export async function loginApi(password) {
-  const res = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password }),
-  })
-  if (!res.ok) throw new Error('Invalid credentials')
-  return res.json() // { token, role }
-}
+import { API_BASE } from './base.js'
 
 function authHeaders() {
   const token = localStorage.getItem('ebam_token') || ''
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 }
 
+export async function loginApi(username, password) {
+  const res = await fetch(API_BASE + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) throw new Error('Invalid credentials')
+  return res.json()
+}
+
 export async function getUsers() {
-  const res = await fetch('/api/auth/users', { headers: authHeaders() })
+  const res = await fetch(API_BASE + '/api/auth/users', { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
 export async function createUser(username, password) {
-  const res = await fetch('/api/auth/users', {
-    method: 'POST',
-    headers: authHeaders(),
+  const res = await fetch(API_BASE + '/api/auth/users', {
+    method: 'POST', headers: authHeaders(),
     body: JSON.stringify({ username, password }),
   })
   if (!res.ok) {
@@ -33,9 +34,8 @@ export async function createUser(username, password) {
 }
 
 export async function resetPassword(username, password) {
-  const res = await fetch(`/api/auth/users/${username}/password`, {
-    method: 'PUT',
-    headers: authHeaders(),
+  const res = await fetch(API_BASE + `/api/auth/users/${username}/password`, {
+    method: 'PUT', headers: authHeaders(),
     body: JSON.stringify({ password }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -43,9 +43,8 @@ export async function resetPassword(username, password) {
 }
 
 export async function deleteUser(username) {
-  const res = await fetch(`/api/auth/users/${username}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
+  const res = await fetch(API_BASE + `/api/auth/users/${username}`, {
+    method: 'DELETE', headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()

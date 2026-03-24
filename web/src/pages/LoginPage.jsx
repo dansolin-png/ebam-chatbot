@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { loginApi } from '../api/auth.js'
 
 const NAVY = '#0d1b2a'
 
@@ -13,21 +14,12 @@ export default function LoginPage({ onLogin }) {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
-      })
-      if (!res.ok) {
-        setError('Invalid username or password.')
-        return
-      }
-      const { token, role } = await res.json()
+      const { token, role } = await loginApi(username.trim(), password)
       localStorage.setItem('ebam_token', token)
       localStorage.setItem('ebam_role', role)
       onLogin(token, role)
     } catch {
-      setError('Unable to connect. Please try again.')
+      setError('Invalid username or password.')
     } finally {
       setLoading(false)
     }

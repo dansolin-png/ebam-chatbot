@@ -1,4 +1,6 @@
-const BASE = '/api/chat'
+import { API_BASE } from './base.js'
+
+const BASE = API_BASE + '/api/chat'
 
 async function post(path, body) {
   const res = await fetch(BASE + path, {

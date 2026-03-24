@@ -12,3 +12,9 @@ venv/
 node_modules/
 dist/
 .DS_Store
+
+# Artifacts & docs
+*.zip
+*.pdf
+CLAUDE.md
+ARCHITECTURE_RECOMMENDATIONS.txt

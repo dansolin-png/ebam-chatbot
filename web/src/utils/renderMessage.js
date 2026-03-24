@@ -9,11 +9,11 @@
  */
 export function renderMessageHtml(text) {
   if (!text) return ''
-  // Already HTML — pass through directly
-  if (/<[a-z][\s\S]*>/i.test(text)) return text
-  // Plain text: normalize literal \n, convert **bold**, split on \n\n
+  // Normalize literal \n sequences → real newlines
   let t = text.replace(/\\n/g, '\n').replace(/\r\n/g, '\n')
+  // Convert **bold**
   t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  // Split on double newlines → paragraphs, single newline → <br>
   return t
     .split(/\n\n+/)
     .map(para => `<p style="margin:0 0 8px 0">${para.replace(/\n/g, '<br>')}</p>`)

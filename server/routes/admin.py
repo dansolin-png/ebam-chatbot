@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session as DBSession
 from pydantic import BaseModel
-from database import get_db
-from models import FlowConfig, Session, Message, Lead, ChatbotConfig
 from state_machine import load_default_flow
 from prompts import CHAT_CONFIG as DEFAULT_CONFIG
 from routes.auth import verify_token
+import dynamo as db
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+VALID_AUDIENCES = {"advisor", "cpa"}
 
 
 def require_auth(authorization: str | None = Header(default=None)):
@@ -17,20 +17,12 @@ def require_auth(authorization: str | None = Header(default=None)):
 
 
 # ---------------------------------------------------------------------------
-# Chatbot Config — GET / PUT
+# Chatbot Config
 # ---------------------------------------------------------------------------
 
-def _get_config(db: DBSession) -> dict:
-    """Return active DB config, or fall back to prompts.py defaults."""
-    row = db.query(ChatbotConfig).filter(ChatbotConfig.id == "active").first()
-    if row:
-        return row.config_json
-    return DEFAULT_CONFIG
-
-
 @router.get("/chatbot-config")
-def get_chatbot_config(db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    return _get_config(db)
+def get_chatbot_config(_=Depends(require_auth)):
+    return db.get_chatbot_config() or DEFAULT_CONFIG
 
 
 class ChatbotConfigRequest(BaseModel):
@@ -38,73 +30,45 @@ class ChatbotConfigRequest(BaseModel):
 
 
 @router.put("/chatbot-config")
-def save_chatbot_config(req: ChatbotConfigRequest, db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    row = db.query(ChatbotConfig).filter(ChatbotConfig.id == "active").first()
-    if row:
-        row.config_json = req.config
-    else:
-        row = ChatbotConfig(id="active", config_json=req.config)
-        db.add(row)
-    db.commit()
+def save_chatbot_config(req: ChatbotConfigRequest, _=Depends(require_auth)):
+    db.save_chatbot_config(req.config)
     return {"message": "Saved."}
 
 
 @router.post("/chatbot-config/reset")
-def reset_chatbot_config(db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    row = db.query(ChatbotConfig).filter(ChatbotConfig.id == "active").first()
-    if row:
-        db.delete(row)
-        db.commit()
+def reset_chatbot_config(_=Depends(require_auth)):
+    db.delete_chatbot_config()
     return {"message": "Reset to defaults."}
 
 
 # ---------------------------------------------------------------------------
-# Flow Config — GET / PUT / RESET  (per audience)
+# Flow Config
 # ---------------------------------------------------------------------------
-
-VALID_AUDIENCES = {"advisor", "cpa"}
-
 
 class FlowRequest(BaseModel):
     flow: dict
 
 
 @router.get("/flow/{audience}")
-def get_flow(audience: str, db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    """Return the flow JSON for the given audience (DB override or default file)."""
+def get_flow(audience: str, _=Depends(require_auth)):
     if audience not in VALID_AUDIENCES:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown audience '{audience}'")
-    row = db.query(FlowConfig).filter(FlowConfig.name == audience).first()
-    if row:
-        return row.flow_json
-    return load_default_flow(audience)
+    return db.get_flow_config(audience) or load_default_flow(audience)
 
 
 @router.put("/flow/{audience}")
-def save_flow(audience: str, req: FlowRequest, db: DBSession = Depends(get_db), _=Depends(require_auth)):
+def save_flow(audience: str, req: FlowRequest, _=Depends(require_auth)):
     if audience not in VALID_AUDIENCES:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown audience '{audience}'")
-    row = db.query(FlowConfig).filter(FlowConfig.name == audience).first()
-    if row:
-        row.flow_json = req.flow
-    else:
-        row = FlowConfig(name=audience, flow_json=req.flow, is_active=True)
-        db.add(row)
-    db.commit()
+    db.save_flow_config(audience, req.flow)
     return {"message": f"Flow saved for {audience}."}
 
 
 @router.post("/flow/{audience}/reset")
-def reset_flow(audience: str, db: DBSession = Depends(get_db), _=Depends(require_auth)):
+def reset_flow(audience: str, _=Depends(require_auth)):
     if audience not in VALID_AUDIENCES:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown audience '{audience}'")
-    row = db.query(FlowConfig).filter(FlowConfig.name == audience).first()
-    if row:
-        db.delete(row)
-        db.commit()
+    db.delete_flow_config(audience)
     return {"message": f"Flow reset to defaults for {audience}."}
 
 
@@ -113,19 +77,14 @@ def reset_flow(audience: str, db: DBSession = Depends(get_db), _=Depends(require
 # ---------------------------------------------------------------------------
 
 @router.get("/stats")
-def get_stats(db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    total_sessions    = db.query(Session).count()
-    completed_sessions = db.query(Session).filter(Session.is_complete == True).count()
-    total_leads       = db.query(Lead).count()
-    advisor_leads     = db.query(Lead).filter(Lead.user_type == "advisor").count()
-    cpa_leads         = db.query(Lead).filter(Lead.user_type == "cpa").count()
-    total_messages    = db.query(Message).count()
-
+def get_stats(_=Depends(require_auth)):
+    leads    = db.list_leads()
+    sessions = db.tbl_sessions.scan(Select="COUNT")["Count"]
+    messages = db.tbl_messages.scan(Select="COUNT")["Count"]
     return {
-        "total_sessions":     total_sessions,
-        "completed_sessions": completed_sessions,
-        "total_leads":        total_leads,
-        "advisor_leads":      advisor_leads,
-        "cpa_leads":          cpa_leads,
-        "total_messages":     total_messages,
+        "total_sessions":     sessions,
+        "total_leads":        len(leads),
+        "advisor_leads":      sum(1 for l in leads if l.get("user_type") == "advisor"),
+        "cpa_leads":          sum(1 for l in leads if l.get("user_type") == "cpa"),
+        "total_messages":     messages,
     }

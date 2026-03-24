@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Routes, Route, Link, useLocation } from 'react-router-dom'
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import ChatPage from './pages/ChatPage.jsx'
 import AdminPage from './pages/AdminPage.jsx'
 import LeadsPage from './pages/LeadsPage.jsx'
@@ -22,7 +22,7 @@ export default function App() {
   const location = useLocation()
   const { token, role, login, logout } = useAuth()
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
-  const isAdminArea = ['/admin', '/leads', '/users'].includes(location.pathname)
+  const isAdminArea = ['/admin', '/leads', '/users', '/login'].includes(location.pathname)
 
   if (isEmbed) {
     return (
@@ -32,7 +32,7 @@ export default function App() {
     )
   }
 
-  if (isAdminArea && !token) {
+  if (!token && isAdminArea) {
     return <LoginPage onLogin={login} />
   }
 
@@ -42,7 +42,7 @@ export default function App() {
   }
 
   const navItems = [
-    { path: '/',      label: 'Chat Demo' },
+    { path: '/chat',  label: 'Chat Demo' },
     { path: '/admin', label: 'Flow Editor' },
     { path: '/leads', label: 'Leads' },
     ...(role === 'admin' ? [{ path: '/users', label: 'Users' }] : []),
@@ -84,7 +84,9 @@ export default function App() {
       </nav>
 
       <Routes>
-        <Route path="/"      element={<ChatPage />} />
+        <Route path="/"      element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={token ? <Navigate to="/admin" replace /> : <LoginPage onLogin={login} />} />
+        <Route path="/chat"  element={<ChatPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/users" element={<UsersPage />} />

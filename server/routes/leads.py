@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy.orm import Session as DBSession
-from database import get_db
-from models import Lead, Session, Message
 from routes.auth import verify_token
+import dynamo as db
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -14,28 +12,11 @@ def require_auth(authorization: str | None = Header(default=None)):
 
 
 @router.delete("/all")
-def clear_all_data(db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    """Delete all leads, sessions, and messages (for dev/testing cleanup)."""
-    db.query(Lead).delete()
-    db.query(Message).delete()
-    db.query(Session).delete()
-    db.commit()
+def clear_all_data(_=Depends(require_auth)):
+    db.delete_all_data()
     return {"message": "All data cleared."}
 
 
 @router.get("/")
-def list_leads(db: DBSession = Depends(get_db), _=Depends(require_auth)):
-    leads = db.query(Lead).order_by(Lead.created_at.desc()).all()
-    return [
-        {
-            "id": l.id,
-            "session_id": l.session_id,
-            "name": l.name,
-            "email": l.email,
-            "phone": l.phone,
-            "user_type": l.user_type,
-            "collected_data": l.collected_data,
-            "created_at": l.created_at,
-        }
-        for l in leads
-    ]
+def list_leads(_=Depends(require_auth)):
+    return db.list_leads()
