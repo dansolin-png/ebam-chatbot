@@ -145,16 +145,14 @@ async def send_message(req: MessageRequest):
     # Save bot message BEFORE compliance so the full conversation is captured
     db.add_message(req.session_id, "bot", result["bot_message"], result["next_state_id"])
 
-    if has_lead:
+    # Store compliance record only on conversation end.
+    # Abandoned leads (name+email but no is_end) are captured by the
+    # idle-session scanner (EventBridge every 30 min) as record_type="timeout".
+    if has_lead and result["is_end"]:
         full_session = {**session, "collected_data": new_data,
                         "compliance_status": session.get("compliance_status", "none"),
-                        "is_complete": result["is_end"]}
-        if result["is_end"]:
-            # Complete record — full conversation captured
-            asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
-        elif session.get("compliance_status", "none") == "none":
-            # First time name+email appear — store partial immediately
-            asyncio.create_task(_store_compliance(full_session, req.session_id, "partial"))
+                        "is_complete": True}
+        asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
 
     return {
         "session_id": req.session_id,
