@@ -19,7 +19,7 @@ import boto3
 from fastapi import APIRouter, HTTPException, Depends
 
 import dynamo_history as dh
-from routes.auth import require_admin
+from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/history", tags=["history"])

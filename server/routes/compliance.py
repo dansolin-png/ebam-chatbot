@@ -21,7 +21,7 @@ import dynamo as db
 import dynamo_compliance as dbc
 import s3_compliance as s3c
 import kms_client as kms
-from routes.auth import require_admin
+from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
 
