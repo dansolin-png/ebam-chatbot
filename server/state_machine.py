@@ -368,8 +368,13 @@ async def _smart_match_option(user_input: str, options: list[str]) -> str | None
         f"  'half a million' → '$500K – $1M'\n"
         f"  'retirement' → 'Retirement planning'\n"
         f"  'I am an investor' → 'I need financial advice'\n\n"
+        f"IMPORTANT RULES:\n"
+        f"  - If their reply is a question (contains '?', starts with how/what/why/when/where/can/is/do/will), respond with NONE.\n"
+        f"  - If their reply is an objection, concern, complaint, or clearly unrelated, respond with NONE.\n"
+        f"  - Only map to an option if the user is CLEARLY and UNAMBIGUOUSLY selecting that exact option.\n"
+        f"  - For options like 'I'd like to get in touch', only match if the user explicitly says they want contact/callback/consultation — NOT if they're asking a question about trust, pricing, or anything else.\n\n"
         f"If their reply maps to an option, respond with ONLY the exact option text.\n"
-        f"If their reply is an objection, complaint, question, or clearly unrelated, respond with NONE."
+        f"Otherwise, respond with NONE."
     )
     try:
         response = await client.messages.create(
