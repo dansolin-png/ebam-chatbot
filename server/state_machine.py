@@ -255,13 +255,12 @@ async def process_message(
 
     # --- LLM state ---
     elif state_type == "llm":
-        # Check if the user input matches an exit option (e.g. "Ready to get in touch")
+        # Check if the user input matches an exit option (e.g. "I'd like to get in touch")
+        # Only use exact match here — any free-form text should go to the LLM, not trigger an exit
         exit_options = state.get("options", [])
         exit_transitions = state.get("transitions", {})
         if exit_options:
             matched_exit = _match_option(user_input, exit_options)
-            if not matched_exit:
-                matched_exit = await _smart_match_option(user_input, exit_options)
             if matched_exit:
                 next_state_id = exit_transitions.get(matched_exit, state.get("fallback", "start"))
                 next_state = get_state(flow, next_state_id)
