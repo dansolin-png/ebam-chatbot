@@ -361,7 +361,7 @@ export default function HistoricalLeadsPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Date', 'Records', 'Fetched At'].map(h => (
+                      {['Date', 'Records', 'Fetched At', ''].map(h => (
                         <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                       ))}
                     </tr>
@@ -382,6 +382,14 @@ export default function HistoricalLeadsPage() {
                           </span>
                         </td>
                         <td style={{ ...tdStyle, color: '#64748b', fontSize: 12 }}>{formatDate(row.fetched_at, tz)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleDeleteDate(row.date)}
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1.5px solid #fecaca', backgroundColor: '#fff', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

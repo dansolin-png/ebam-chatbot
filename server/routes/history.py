@@ -160,41 +160,50 @@ def fetch_date(date: str, _=Depends(require_admin)):
     if dh.date_already_fetched(date):
         dh.delete_records_for_date(date)
 
-    records = []
-    errors  = 0
+    _RANK = {"complete": 0, "timeout": 1, "partial": 2, "unknown": 3}
+    best   = {}   # session_id -> best record dict
+    errors = 0
+    fetched_at = datetime.now(timezone.utc).isoformat()
+
     for key in keys:
         try:
             resp     = _s3.get_object(Bucket=_BUCKET, Key=key)
             payload  = json.loads(resp["Body"].read())
 
-            # Extract record_type from the key suffix (_partial, _complete, _timeout)
-            key_base = key.rsplit("/", 1)[-1].replace(".json", "")
-            suffix   = key_base.split("_")[-1] if "_" in key_base else "unknown"
+            key_base    = key.rsplit("/", 1)[-1].replace(".json", "")
+            suffix      = key_base.split("_")[-1] if "_" in key_base else "unknown"
             record_type = suffix if suffix in ("partial", "complete", "timeout") else "unknown"
 
-            lead     = payload.get("lead", {})
-            collected = payload.get("collected_data", {})
-            conversation = payload.get("conversation", [])
+            session_id = payload.get("session_id", key)   # fallback to key if missing
+            lead       = payload.get("lead", {})
+            collected  = payload.get("collected_data", {})
 
-            records.append({
-                "history_id":         str(uuid.uuid4()),
-                "fetch_date":         date,
-                "session_id":         payload.get("session_id", ""),
-                "s3_key":             key,
-                "record_type":        record_type,
-                "name":               lead.get("name") or collected.get("name", ""),
-                "email":              lead.get("email") or collected.get("email", ""),
-                "phone":              lead.get("phone") or collected.get("phone", ""),
-                "user_type":          payload.get("audience", ""),
-                "collected_data":     collected,
-                "conversation":       conversation,
+            candidate = {
+                "history_id":          str(uuid.uuid4()),
+                "fetch_date":          date,
+                "session_id":          session_id,
+                "s3_key":              key,
+                "record_type":         record_type,
+                "name":                lead.get("name") or collected.get("name", ""),
+                "email":               lead.get("email") or collected.get("email", ""),
+                "phone":               lead.get("phone") or collected.get("phone", ""),
+                "user_type":           payload.get("audience", ""),
+                "collected_data":      collected,
+                "conversation":        payload.get("conversation", []),
                 "original_created_at": payload.get("created_at", ""),
-                "fetched_at":         datetime.now(timezone.utc).isoformat(),
-            })
+                "fetched_at":          fetched_at,
+            }
+
+            # Keep only the best record per session: complete > timeout > partial
+            existing = best.get(session_id)
+            if existing is None or _RANK.get(record_type, 9) < _RANK.get(existing["record_type"], 9):
+                best[session_id] = candidate
+
         except Exception as e:
             log.error(f"Failed to load S3 key {key}: {e}")
             errors += 1
 
+    records = list(best.values())
     if records:
         dh.batch_save_history_records(records)
 
