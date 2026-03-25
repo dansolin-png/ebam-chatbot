@@ -76,27 +76,44 @@ export default function CompliancePage() {
       </div>
 
       {/* Verify result panel */}
-      {verifyResult && (
-        <div style={{ ...st.card, marginBottom: 20, borderLeft: `4px solid ${verifyResult.valid ? '#16a34a' : '#ef4444'}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: verifyResult.valid ? '#16a34a' : '#ef4444', marginBottom: 6 }}>
-                {verifyResult.valid ? '✓ Record Verified — Tamper-Free' : '✗ Verification Failed — Possible Tampering'}
+      {verifyResult && (() => {
+        const batchPending = verifyResult.detail === 'Batch not yet sealed — Merkle proof not available'
+        const batchSkipped = (check) => batchPending && (check === 'merkle_proof' || check === 'kms_signature')
+        // Verified = data checks pass; pending batch checks don't count as failure
+        const coreValid = verifyResult.checks.data_hash && verifyResult.checks.record_hash
+        const status = verifyResult.valid
+          ? { label: '✓ Record Verified — Tamper-Free', color: '#16a34a' }
+          : batchPending && coreValid
+            ? { label: '✓ Data Integrity Confirmed — Batch Seal Pending', color: '#d97706' }
+            : { label: '✗ Verification Failed — Possible Tampering', color: '#ef4444' }
+        const borderColor = verifyResult.valid ? '#16a34a' : batchPending && coreValid ? '#d97706' : '#ef4444'
+        return (
+          <div style={{ ...st.card, marginBottom: 20, borderLeft: `4px solid ${borderColor}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: status.color, marginBottom: 6 }}>
+                  {status.label}
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>{verifyResult.record_id}</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {Object.entries(verifyResult.checks).map(([check, ok]) => {
+                    const skipped = batchSkipped(check)
+                    return (
+                      <span key={check} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 600,
+                        backgroundColor: skipped ? '#fef9c3' : ok ? '#dcfce7' : '#fee2e2',
+                        color: skipped ? '#854d0e' : ok ? '#166534' : '#991b1b' }}>
+                        {skipped ? '⏳' : ok ? '✓' : '✗'} {check.replace(/_/g, ' ')}{skipped ? ' (pending)' : ''}
+                      </span>
+                    )
+                  })}
+                </div>
+                {verifyResult.detail && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>{verifyResult.detail}</div>}
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>{verifyResult.record_id}</div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {Object.entries(verifyResult.checks).map(([check, ok]) => (
-                  <span key={check} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 600,
-                    backgroundColor: ok ? '#dcfce7' : '#fee2e2', color: ok ? '#166534' : '#991b1b' }}>
-                    {ok ? '✓' : '✗'} {check.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
-              {verifyResult.detail && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>{verifyResult.detail}</div>}
+              <button onClick={() => setVerifyResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18 }}>✕</button>
             </div>
-            <button onClick={() => setVerifyResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18 }}>✕</button>
           </div>
-        </div>
+        )
+      })()}
       )}
 
       {/* Records tab */}
