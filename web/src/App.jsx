@@ -5,6 +5,8 @@ import AdminPage from './pages/AdminPage.jsx'
 import LeadsPage from './pages/LeadsPage.jsx'
 import UsersPage from './pages/UsersPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import CompliancePage from './pages/CompliancePage.jsx'
+import HistoricalLeadsPage from './pages/HistoricalLeadsPage.jsx'
 
 function useAuth() {
   const [token, setToken] = useState(() => localStorage.getItem('ebam_token') || '')
@@ -22,7 +24,7 @@ export default function App() {
   const location = useLocation()
   const { token, role, login, logout } = useAuth()
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
-  const isAdminArea = ['/admin', '/leads', '/users', '/login'].includes(location.pathname)
+  const isAdminArea = ['/admin', '/leads', '/users', '/login', '/compliance', '/history'].includes(location.pathname)
 
   if (isEmbed) {
     return (
@@ -42,9 +44,11 @@ export default function App() {
   }
 
   const navItems = [
-    { path: '/chat',  label: 'Chat Demo' },
-    { path: '/admin', label: 'Flow Editor' },
-    { path: '/leads', label: 'Leads' },
+    { path: '/chat',       label: 'Chat Demo' },
+    { path: '/admin',      label: 'Flow Editor' },
+    { path: '/leads',      label: 'Leads' },
+    { path: '/compliance', label: 'Compliance' },
+    { path: '/history',    label: 'History' },
     ...(role === 'admin' ? [{ path: '/users', label: 'Users' }] : []),
   ]
 
@@ -87,9 +91,11 @@ export default function App() {
         <Route path="/"      element={<Navigate to="/login" replace />} />
         <Route path="/login" element={token ? <Navigate to="/admin" replace /> : <LoginPage onLogin={login} />} />
         <Route path="/chat"  element={<ChatPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/leads" element={<LeadsPage />} />
-        <Route path="/users" element={<UsersPage />} />
+        <Route path="/admin"      element={<AdminPage />} />
+        <Route path="/leads"      element={<LeadsPage />} />
+        <Route path="/users"      element={<UsersPage />} />
+        <Route path="/compliance" element={<CompliancePage />} />
+        <Route path="/history"    element={<HistoricalLeadsPage />} />
       </Routes>
     </div>
   )

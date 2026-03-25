@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 import uuid
 import anthropic
@@ -6,6 +8,9 @@ from pydantic import BaseModel
 from prompts import CHAT_CONFIG
 from state_machine import process_message, get_initial_message, load_default_flow
 import dynamo as db
+import compliance_store
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -120,23 +125,36 @@ async def send_message(req: MessageRequest):
         else:
             new_data[k] = v
 
-    # Update session
+    # Update session (always track last_activity_at)
     updates = {
-        "previous_state": session["current_state"],
-        "current_state":  result["next_state_id"],
-        "collected_data": new_data,
+        "previous_state":   session["current_state"],
+        "current_state":    result["next_state_id"],
+        "collected_data":   new_data,
+        "last_activity_at": db.now_iso(),
     }
     if result["is_end"]:
         updates["is_complete"] = True
     db.update_session(req.session_id, **updates)
 
     # Save lead as soon as name + email collected
-    if new_data.get("name") and new_data.get("email"):
+    has_lead = new_data.get("name") and new_data.get("email")
+    if has_lead:
         updated_session = {**session, "collected_data": new_data}
         db.upsert_lead(updated_session)
 
-    # Save bot message
+    # Save bot message BEFORE compliance so the full conversation is captured
     db.add_message(req.session_id, "bot", result["bot_message"], result["next_state_id"])
+
+    if has_lead:
+        full_session = {**session, "collected_data": new_data,
+                        "compliance_status": session.get("compliance_status", "none"),
+                        "is_complete": result["is_end"]}
+        if result["is_end"]:
+            # Complete record — full conversation captured
+            asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
+        elif session.get("compliance_status", "none") == "none":
+            # First time name+email appear — store partial immediately
+            asyncio.create_task(_store_compliance(full_session, req.session_id, "partial"))
 
     return {
         "session_id": req.session_id,
@@ -149,6 +167,16 @@ async def send_message(req: MessageRequest):
 # ---------------------------------------------------------------------------
 # GET /api/chat/history/{session_id}
 # ---------------------------------------------------------------------------
+
+async def _store_compliance(session: dict, session_id: str, record_type: str = "partial"):
+    try:
+        messages = db.get_messages(session_id)
+        await asyncio.get_event_loop().run_in_executor(
+            None, compliance_store.store_lead, session, messages, record_type
+        )
+    except Exception as e:
+        log.error(f"Compliance [{record_type}] storage failed for session {session_id}: {e}")
+
 
 @router.get("/history/{session_id}")
 def get_history(session_id: str):

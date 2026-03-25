@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
-from routes import chat, admin, leads, auth
+from routes import chat, admin, leads, auth, compliance, history
 
 app = FastAPI(title="EBAM Chatbot API", version="1.0.0")
 
@@ -11,6 +11,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:3000",
         "https://main.d142ap2pr34amq.amplifyapp.com",
+        "https://ebam.buzzybrains.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -21,6 +22,8 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(leads.router, prefix="/api")
+app.include_router(compliance.router, prefix="/api")
+app.include_router(history.router, prefix="/api")
 
 
 @app.get("/")

@@ -10,6 +10,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+_TTL_DAYS = 30   # active records auto-expire after 30 days
+
+
+def _ttl_30d() -> int:
+    """Unix timestamp 30 days from now — used for DynamoDB TTL."""
+    from datetime import timedelta
+    return int((datetime.now(timezone.utc) + timedelta(days=_TTL_DAYS)).timestamp())
+
+
 # In Lambda, use IAM role (no profile). Locally, use AWS_PROFILE.
 _is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"))
 _session = boto3.Session(
@@ -46,16 +55,41 @@ def get_session(session_id: str) -> dict | None:
 
 def create_session(session_id: str, user_type: str) -> dict:
     item = {
-        "session_id":     session_id,
-        "current_state":  "start",
-        "previous_state": None,
-        "collected_data": {},
-        "user_type":      user_type,
-        "is_complete":    False,
-        "created_at":     now_iso(),
+        "session_id":        session_id,
+        "current_state":     "start",
+        "previous_state":    None,
+        "collected_data":    {},
+        "user_type":         user_type,
+        "is_complete":       False,
+        "created_at":        now_iso(),
+        "last_activity_at":  now_iso(),
+        "compliance_status": "none",   # none | partial | complete | timeout
+        "ttl":               _ttl_30d(),
     }
     tbl_sessions.put_item(Item=item)
     return item
+
+
+def get_idle_sessions(idle_minutes: int = 30) -> list[dict]:
+    """Return sessions with name+email collected, incomplete, and idle > idle_minutes."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=idle_minutes)).isoformat()
+    result = tbl_sessions.scan(
+        FilterExpression=(
+            "is_complete = :f AND last_activity_at < :cutoff AND compliance_status <> :done"
+        ),
+        ExpressionAttributeValues={
+            ":f":      False,
+            ":cutoff": cutoff,
+            ":done":   "complete",
+        },
+    )
+    # Only return sessions with name + email collected
+    return [
+        s for s in result.get("Items", [])
+        if s.get("collected_data", {}).get("name")
+        and s.get("collected_data", {}).get("email")
+    ]
 
 
 def update_session(session_id: str, **kwargs):
@@ -90,6 +124,7 @@ def add_message(session_id: str, role: str, content: str, state_id: str = None) 
         "content":    content,
         "state_id":   state_id or "",
         "created_at": now_iso(),
+        "ttl":        _ttl_30d(),
     }
     tbl_messages.put_item(Item=item)
     return item
@@ -131,6 +166,7 @@ def upsert_lead(session: dict):
         "user_type":      session.get("user_type", ""),
         "collected_data": data,
         "created_at":     now_iso(),
+        "ttl":            _ttl_30d(),
     }
     tbl_leads.put_item(Item=item)
 
