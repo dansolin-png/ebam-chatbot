@@ -23,10 +23,8 @@ function formatDate(isoStr, tz) {
   } catch { return new Date(isoStr).toLocaleString() }
 }
 
-function cutoffDateStr() {
-  const d = new Date()
-  d.setDate(d.getDate() - 30)
-  return d.toISOString().slice(0, 10)
+function todayStr() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 // ---------------------------------------------------------------------------
@@ -37,8 +35,8 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const navBtnStyle = { background: '#f1f5f9', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 9, color: '#475569', padding: '3px 6px', lineHeight: 1 }
 
 function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClose }) {
-  const cutoff  = cutoffDateStr()
-  const initD   = new Date(cutoff)
+  const today   = todayStr()
+  const initD   = new Date()
   const [year, setYear]   = useState(() => initD.getFullYear())
   const [month, setMonth] = useState(() => initD.getMonth())
   const ref = useRef(null)
@@ -75,9 +73,10 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
       borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.14)', zIndex: 1000, overflow: 'hidden',
       fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
     }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', gap: 14, fontSize: 11, color: '#64748b' }}>
-        <span><DotIcon color="#3b82f6" /> S3 data available</span>
-        <span><DotIcon color="#15803d" /> Already fetched</span>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', gap: 16, fontSize: 11, color: '#64748b' }}>
+        <span><DotIcon color="#3b82f6" /> S3 data</span>
+        <span><DotIcon color="#15803d" /> Cached</span>
+        <span style={{ color: '#d1d5db' }}>Grey = no data</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 8px' }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{MONTH_NAMES[month]} {year}</span>
@@ -92,10 +91,10 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', padding: '0 10px 12px', gap: '2px 0' }}>
         {cells.map((cell, i) => {
           const dateStr   = cellDate(cell)
-          const tooRecent = dateStr && dateStr > cutoff
+          const isFuture  = dateStr && dateStr > today
           const hasData   = dateStr && availableSet.has(dateStr)
           const isFetched = dateStr && fetchedSet.has(dateStr)
-          const disabled  = !cell.cur || tooRecent || !hasData
+          const disabled  = !cell.cur || isFuture || !hasData
           return (
             <div
               key={i}
@@ -107,11 +106,11 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
                 width: 30, height: 30, borderRadius: '50%', fontSize: 13,
                 fontWeight: isFetched ? 700 : 400,
                 backgroundColor: 'transparent',
-                color: tooRecent ? '#e2e8f0' : (!hasData && cell.cur) ? '#d1d5db' : cell.cur ? '#1e293b' : '#cbd5e1',
+                color: isFuture ? '#e2e8f0' : (!hasData && cell.cur) ? '#d1d5db' : cell.cur ? '#1e293b' : '#cbd5e1',
               }}>
                 {cell.d}
               </span>
-              {cell.cur && !tooRecent && (isFetched || hasData) && (
+              {cell.cur && !isFuture && (isFetched || hasData) && (
                 <span style={{
                   position: 'absolute', bottom: 3, left: '50%', transform: 'translateX(-50%)',
                   width: 5, height: 5, borderRadius: '50%',
@@ -355,7 +354,7 @@ export default function HistoricalLeadsPage() {
               <EmptyBox
                 icon="📅"
                 title="No cached historical data"
-                text={'Click "Fetch date" and pick a day older than 30 days from the calendar to load lead data from S3.'}
+                text={'Click "Fetch date" and pick any day with a blue dot from the calendar to load lead data from S3.'}
               />
             ) : (
               <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>

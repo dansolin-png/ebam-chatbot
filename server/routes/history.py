@@ -119,15 +119,13 @@ def _best_record_per_session(records: list[dict]) -> list[dict]:
 @router.get("/available-days")
 def available_days(_=Depends(require_admin)):
     """
-    List S3 day prefixes that have lead objects AND are older than 30 days.
+    List all S3 day prefixes that have lead objects.
     """
-    cutoff = _cutoff_date()
     try:
         all_days = _list_s3_days()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"S3 listing failed: {e}")
 
-    eligible = [d for d in all_days if d <= cutoff]
     fetched_dates = {fd["date"] for fd in dh.list_fetched_dates()}
 
     return [
@@ -135,7 +133,7 @@ def available_days(_=Depends(require_admin)):
             "date":     d,
             "fetched":  d in fetched_dates,
         }
-        for d in eligible
+        for d in all_days
     ]
 
 
@@ -149,12 +147,6 @@ def fetch_date(date: str, _=Depends(require_admin)):
     Load all S3 lead objects for a given date into the history DynamoDB table.
     Idempotent — re-fetching overwrites existing records for that date first.
     """
-    cutoff = _cutoff_date()
-    if date > cutoff:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Date {date} is within the last 30 days. Only dates on or before {cutoff} are available as historical data.",
-        )
 
     try:
         keys = _list_objects_for_date(date)
