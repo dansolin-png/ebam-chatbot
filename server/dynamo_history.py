@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from dotenv import load_dotenv
 
-load_dotenv()
-
 _is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"))
+if not _is_lambda:
+    load_dotenv()
 _session = boto3.Session(
     profile_name=None if _is_lambda else os.getenv("AWS_PROFILE", "ebam"),
     region_name=os.getenv("AWS_REGION", "us-east-1"),

@@ -5,10 +5,14 @@ import os
 import uuid
 import boto3
 from datetime import datetime, timezone
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from dotenv import load_dotenv
 
-load_dotenv()
+# Only load .env locally — in Lambda, env vars are set directly in the function config.
+# Loading .env in Lambda would inject AWS_PROFILE=ebam, breaking boto3 credential resolution.
+_is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"))
+if not _is_lambda:
+    load_dotenv()
 
 _TTL_DAYS = 30   # active records auto-expire after 30 days
 
@@ -20,7 +24,6 @@ def _ttl_30d() -> int:
 
 
 # In Lambda, use IAM role (no profile). Locally, use AWS_PROFILE.
-_is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"))
 _session = boto3.Session(
     profile_name=None if _is_lambda else os.getenv("AWS_PROFILE", "ebam"),
     region_name=os.getenv("AWS_REGION", "us-east-1"),
@@ -74,15 +77,13 @@ def get_idle_sessions(idle_minutes: int = 30) -> list[dict]:
     """Return sessions with name+email collected, incomplete, and idle > idle_minutes."""
     from datetime import timedelta
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=idle_minutes)).isoformat()
+    # Use Attr conditions to avoid reserved-word conflicts and handle missing compliance_status
     result = tbl_sessions.scan(
         FilterExpression=(
-            "is_complete = :f AND last_activity_at < :cutoff AND compliance_status <> :done"
-        ),
-        ExpressionAttributeValues={
-            ":f":      False,
-            ":cutoff": cutoff,
-            ":done":   "complete",
-        },
+            Attr("is_complete").eq(False) &
+            Attr("last_activity_at").lt(cutoff) &
+            (Attr("compliance_status").not_exists() | Attr("compliance_status").ne("complete"))
+        )
     )
     # Only return sessions with name + email collected
     return [

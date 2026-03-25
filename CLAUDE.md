@@ -20,16 +20,18 @@ Excluding it causes `No module named 'fastapi'` and a complete outage.
 ### Correct deploy command:
 ```bash
 cd server/
-zip -r /tmp/ebam-deploy.zip . --exclude "venv/*" --exclude "*.pyc" -x "**/__pycache__/*"
-aws s3 cp /tmp/ebam-deploy.zip s3://ebam-compliance-leads/deployments/ebam-deploy.zip --profile ebam --region us-east-1
+zip -r /tmp/ebam-deploy.zip . -x "venv/*" -x "*.pyc" -x "*/__pycache__/*" -x "__pycache__/*"
+zip -d /tmp/ebam-deploy.zip ".env" "ebam.db" "lambda.zip" 2>/dev/null || true
+aws s3 cp /tmp/ebam-deploy.zip s3://ebam-compliance-leads/deployments/ebam-deploy.zip --profile ebam --region us-east-1 --no-progress
 aws lambda update-function-code --function-name ebam-api \
   --s3-bucket ebam-compliance-leads --s3-key deployments/ebam-deploy.zip \
   --profile ebam --region us-east-1
 aws lambda wait function-updated --function-name ebam-api --profile ebam --region us-east-1
 ```
 
-### NEVER exclude `package/` from the zip — it breaks Lambda.
-### Always use S3 upload (zip is ~52MB, exceeds 70MB direct upload limit only with venv).
+### NEVER exclude `package/` from the zip — it breaks Lambda (No module named 'fastapi').
+### ALWAYS remove `.env` from the zip (use `zip -d` after building) — it injects AWS_PROFILE=ebam which breaks boto3 in Lambda.
+### Always use S3 upload (zip is ~52MB, exceeds Lambda's direct upload limit).
 ### Lambda env var `PYTHONPATH=/var/task/package` must remain set.
 
 ## Frontend Deployment
