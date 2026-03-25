@@ -5,6 +5,7 @@ import uuid
 import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from prompts import CHAT_CONFIG
 from state_machine import process_message, get_initial_message, load_default_flow
 import dynamo as db
@@ -24,6 +25,8 @@ class StartRequest(BaseModel):
 class MessageRequest(BaseModel):
     session_id: str
     user_message: str
+    # Temporary client-side state — present until name+email are collected and session persisted to DB
+    session_state: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +64,23 @@ def start_session(req: StartRequest):
     initial = get_initial_message(flow)
 
     session_id = str(uuid.uuid4())
-    db.create_session(session_id, req.audience)
-    db.add_message(session_id, "bot", initial["bot_message"], "start")
+
+    # Do NOT write to DB yet — session is persisted only when name+email are captured.
+    # Return initial state for the client to hold temporarily.
+    initial_state = {
+        "current_state":  "start",
+        "previous_state": None,
+        "collected_data": {},
+        "user_type":      req.audience,
+        "is_complete":    False,
+    }
 
     return {
-        "session_id": session_id,
-        "message":    initial["bot_message"],
-        "options":    initial.get("bot_options"),
-        "is_end":     False,
+        "session_id":    session_id,
+        "message":       initial["bot_message"],
+        "options":       initial.get("bot_options"),
+        "is_end":        False,
+        "session_state": initial_state,   # client holds this until session is persisted
     }
 
 
@@ -78,16 +90,28 @@ def start_session(req: StartRequest):
 
 @router.post("/message")
 async def send_message(req: MessageRequest):
+    # Try DB first; fall back to client-provided session_state
     session = db.get_session(req.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    in_db   = session is not None
+
+    if not in_db:
+        if not req.session_state:
+            raise HTTPException(status_code=404, detail="Session not found")
+        # Reconstruct session from client-held state
+        session = {
+            "session_id":    req.session_id,
+            "current_state": req.session_state.get("current_state", "start"),
+            "previous_state":req.session_state.get("previous_state"),
+            "collected_data":req.session_state.get("collected_data") or {},
+            "user_type":     req.session_state.get("user_type", ""),
+            "is_complete":   req.session_state.get("is_complete", False),
+            "compliance_status": "none",
+        }
+
     if session.get("is_complete"):
-        return {"session_id": session["session_id"], "message": "This conversation is complete.", "options": None, "is_end": True}
+        return {"session_id": req.session_id, "message": "This conversation is complete.", "options": None, "is_end": True, "session_state": None}
 
     flow = _get_flow(session["user_type"])
-
-    # Save user message
-    db.add_message(req.session_id, "user", req.user_message, session["current_state"])
 
     # Load audience LLM settings
     cfg           = _get_active_config()
@@ -96,12 +120,17 @@ async def send_message(req: MessageRequest):
     system_prompt      = audience_cfg.get("systemPrompt")     or defaults.get("systemPrompt", "")
     default_llm_prompt = audience_cfg.get("defaultLLMPrompt") or defaults.get("defaultLLMPrompt")
 
-    # Build message history
-    history_rows    = db.get_messages(req.session_id)
-    message_history = [
-        {"role": "assistant" if m["role"] in ("bot", "assistant") else "user", "content": m["content"]}
-        for m in history_rows
-    ]
+    # Build message history from DB (if persisted) or minimal history (if not yet)
+    if in_db:
+        history_rows = db.get_messages(req.session_id)
+        message_history = [
+            {"role": "assistant" if m["role"] in ("bot", "assistant") else "user", "content": m["content"]}
+            for m in history_rows
+        ]
+    else:
+        # Session not in DB yet — history comes from client session_state
+        message_history = req.session_state.get("message_history") or []
+
     message_history.append({"role": "user", "content": req.user_message})
 
     # Run state machine
@@ -125,40 +154,59 @@ async def send_message(req: MessageRequest):
         else:
             new_data[k] = v
 
-    # Update session (always track last_activity_at)
-    updates = {
-        "previous_state":   session["current_state"],
-        "current_state":    result["next_state_id"],
-        "collected_data":   new_data,
-        "last_activity_at": db.now_iso(),
-    }
-    if result["is_end"]:
-        updates["is_complete"] = True
-    db.update_session(req.session_id, **updates)
+    has_lead = bool(new_data.get("name") and new_data.get("email"))
 
-    # Save lead as soon as name + email collected
-    has_lead = new_data.get("name") and new_data.get("email")
-    if has_lead:
-        updated_session = {**session, "collected_data": new_data}
-        db.upsert_lead(updated_session)
+    # Persist to DB only when BOTH name AND email are captured for the first time
+    if has_lead and not in_db:
+        db.create_session(req.session_id, session["user_type"])
+        in_db = True
 
-    # Save bot message BEFORE compliance so the full conversation is captured
-    db.add_message(req.session_id, "bot", result["bot_message"], result["next_state_id"])
+    if in_db:
+        # Save user message + bot message to DB
+        db.add_message(req.session_id, "user", req.user_message, session["current_state"])
 
-    # Store compliance record only on conversation end.
-    # Abandoned leads (name+email but no is_end) are captured by the
-    # idle-session scanner (EventBridge every 30 min) as record_type="timeout".
-    if has_lead and result["is_end"]:
-        full_session = {**session, "collected_data": new_data,
-                        "compliance_status": session.get("compliance_status", "none"),
-                        "is_complete": True}
-        asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
+        updates = {
+            "previous_state":   session["current_state"],
+            "current_state":    result["next_state_id"],
+            "collected_data":   new_data,
+            "last_activity_at": db.now_iso(),
+        }
+        if result["is_end"]:
+            updates["is_complete"] = True
+        db.update_session(req.session_id, **updates)
+
+        if has_lead:
+            updated_session = {**session, "collected_data": new_data}
+            db.upsert_lead(updated_session)
+
+        db.add_message(req.session_id, "bot", result["bot_message"], result["next_state_id"])
+
+        # Compliance: store on conversation end
+        if has_lead and result["is_end"]:
+            full_session = {**session, "collected_data": new_data,
+                            "compliance_status": session.get("compliance_status", "none"),
+                            "is_complete": True}
+            asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
+
+        return_state = None  # session is now in DB, client can stop sending state
+    else:
+        # Not yet persisted — build updated state for client to hold
+        message_history.append({"role": "assistant", "content": result["bot_message"]})
+        return_state = {
+            "current_state":   result["next_state_id"],
+            "previous_state":  session["current_state"],
+            "collected_data":  new_data,
+            "user_type":       session["user_type"],
+            "is_complete":     result["is_end"],
+            "message_history": message_history,
+        }
 
     return {
-        "session_id": req.session_id,
-        "message":    result["bot_message"],
-        "options":    result.get("bot_options"),
-        "is_end":     result["is_end"],
+        "session_id":    req.session_id,
+        "message":       result["bot_message"],
+        "options":       result.get("bot_options"),
+        "is_end":        result["is_end"],
+        "session_state": return_state,
     }
 
 

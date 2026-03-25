@@ -14,11 +14,10 @@ _is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"
 if not _is_lambda:
     load_dotenv()
 
-_TTL_DAYS = 30   # active records auto-expire after 30 days
+_TTL_DAYS = 30   # sessions/messages/leads auto-expire after 30 days
 
 
 def _ttl_30d() -> int:
-    """Unix timestamp 30 days from now — used for DynamoDB TTL."""
     from datetime import timedelta
     return int((datetime.now(timezone.utc) + timedelta(days=_TTL_DAYS)).timestamp())
 
@@ -66,7 +65,7 @@ def create_session(session_id: str, user_type: str) -> dict:
         "is_complete":       False,
         "created_at":        now_iso(),
         "last_activity_at":  now_iso(),
-        "compliance_status": "none",   # none | partial | complete | timeout
+        "compliance_status": "none",
         "ttl":               _ttl_30d(),
     }
     tbl_sessions.put_item(Item=item)

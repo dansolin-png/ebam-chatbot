@@ -180,9 +180,10 @@
 
   /* ── State ───────────────────────────────────────────────────────────── */
   var sessionId      = null;
+  var sessionState   = null;  // held client-side until name+email captured and session persisted to DB
   var busy           = false;
   var greetingBubble = null;
-  var preloaded      = {};   // { advisor: {session_id, message, options}, cpa: {...} }
+  var preloaded      = {};   // { advisor: {session_id, message, options, session_state}, cpa: {...} }
 
   /* ── Helpers ─────────────────────────────────────────────────────────── */
   function $(id) { return document.getElementById(id); }
@@ -293,7 +294,8 @@
     if (preloaded[audience]) {
       var cached = preloaded[audience];
       delete preloaded[audience];
-      sessionId = cached.session_id;
+      sessionId    = cached.session_id;
+      sessionState = cached.session_state || null;
       applyResponse(cached);
       return;
     }
@@ -306,7 +308,7 @@
       body: JSON.stringify({ audience: audience })
     })
     .then(function(r){ return r.json(); })
-    .then(function(data){ sessionId = data.session_id; applyResponse(data); })
+    .then(function(data){ sessionId = data.session_id; sessionState = data.session_state || null; applyResponse(data); })
     .catch(function(){
       removeTyping(); busy = false;
       addBotBubble('Sorry, something went wrong. Please try again.');
@@ -321,10 +323,10 @@
     fetch(API + '/api/chat/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, user_message: text })
+      body: JSON.stringify({ session_id: sessionId, user_message: text, session_state: sessionState })
     })
     .then(function(r){ return r.json(); })
-    .then(applyResponse)
+    .then(function(data){ sessionState = data.session_state || null; applyResponse(data); })
     .catch(function(){
       removeTyping(); busy = false;
       addBotBubble('Sorry, something went wrong. Please try again.');
