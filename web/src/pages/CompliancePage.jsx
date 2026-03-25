@@ -112,7 +112,6 @@ export default function CompliancePage() {
           </div>
         </div>
       )}
-      )}
 
       {/* Records tab */}
       {tab === 'records' && (
