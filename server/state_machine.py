@@ -246,7 +246,14 @@ async def process_message(
         # Email validation
         if capture_field == "email" and value:
             import re
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
+            # Normalise: lowercase and strip whitespace
+            value = value.strip().lower()
+
+            # Auto-correct doubled letters in the TLD (e.g. .coom → .com, .nett → .net)
+            value = re.sub(r'\.([a-z])\1+$', lambda m: '.' + m.group(1), value)
+
+            # Require: local@domain.tld where TLD is 2–6 alpha chars
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[a-z]{2,6}$", value):
                 return {
                     "next_state_id": current_state_id,
                     "bot_message": "That doesn't look like a valid email address. Could you double-check and try again?",
