@@ -6,12 +6,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 import dynamo as db
+import secrets_client as sc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SECRET_KEY         = os.getenv("SECRET_KEY", "ebam-secret-key-change-in-production")
+SECRET_KEY         = sc.get("SECRET_KEY", "ebam-secret-key-change-in-production")
 ADMIN_USERNAME     = "admin"
-ADMIN_PASSWORD     = os.getenv("ADMIN_PASSWORD", "admin")
+ADMIN_PASSWORD     = sc.get("ADMIN_PASSWORD", "admin")
 TOKEN_EXPIRE_HOURS = 8
 
 
