@@ -3,13 +3,14 @@ import logging
 import os
 import uuid
 import anthropic
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 from prompts import CHAT_CONFIG
 from state_machine import process_message, get_initial_message, load_default_flow
 import dynamo as db
 import compliance_store
+import rate_limit as rl
 
 log = logging.getLogger(__name__)
 
@@ -56,9 +57,15 @@ def get_chat_config():
 # ---------------------------------------------------------------------------
 
 @router.post("/start")
-def start_session(req: StartRequest):
+def start_session(req: StartRequest, request: Request):
     if req.audience not in ("advisor", "cpa"):
         raise HTTPException(status_code=400, detail="audience must be 'advisor' or 'cpa'")
+
+    # Origin check
+    origin = request.headers.get("origin")
+    allowed = rl.get_allowed_origins_cached()
+    if not rl.is_origin_allowed(origin, allowed):
+        raise HTTPException(status_code=403, detail="Origin not allowed")
 
     flow    = _get_flow(req.audience)
     initial = get_initial_message(flow)
@@ -89,7 +96,20 @@ def start_session(req: StartRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/message")
-async def send_message(req: MessageRequest):
+async def send_message(req: MessageRequest, request: Request):
+    # Origin check
+    origin = request.headers.get("origin")
+    allowed = rl.get_allowed_origins_cached()
+    if not rl.is_origin_allowed(origin, allowed):
+        raise HTTPException(status_code=403, detail="Origin not allowed")
+
+    # Rate limit: 20 messages per minute per IP
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    ok, count = rl.check_rate_limit(client_ip)
+    if not ok:
+        log.warning(f"Rate limit exceeded for IP {client_ip}: {count} messages in window")
+        raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment before continuing.")
+
     # Try DB first; fall back to client-provided session_state
     session = db.get_session(req.session_id)
     in_db   = session is not None

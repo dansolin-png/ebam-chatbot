@@ -4,6 +4,7 @@ from state_machine import load_default_flow
 from prompts import CHAT_CONFIG as DEFAULT_CONFIG
 from routes.auth import verify_token
 import dynamo as db
+import rate_limit as rl
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,6 +33,7 @@ class ChatbotConfigRequest(BaseModel):
 @router.put("/chatbot-config")
 def save_chatbot_config(req: ChatbotConfigRequest, _=Depends(require_auth)):
     db.save_chatbot_config(req.config)
+    rl.invalidate_origins_cache()
     return {"message": "Saved."}
 
 

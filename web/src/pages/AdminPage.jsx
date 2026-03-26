@@ -90,6 +90,29 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Allowed Origins */}
+      {config && (
+        <div style={st.card}>
+          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Allowed Origins</div>
+          <div style={{ ...st.sectionHint, marginBottom: 10 }}>
+            Domains allowed to embed the chatbot widget. One per line (e.g. <code>https://yourdomain.com</code>).
+            Leave empty to allow all origins. Use <code>*</code> to explicitly allow all.
+          </div>
+          <textarea
+            style={{ ...st.textarea, height: 100, fontFamily: 'monospace', fontSize: 12 }}
+            placeholder={'https://yourdomain.com\nhttps://www.yourdomain.com'}
+            value={(config.allowed_origins || []).join('\n')}
+            onChange={e => setConfig(c => ({
+              ...c,
+              allowed_origins: e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
+            }))}
+          />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+            Requests from unlisted origins will receive a 403 error. Rate limit: 20 messages / minute per IP.
+          </div>
+        </div>
+      )}
+
       {/* Greeting Message */}
       {config && (
         <div style={st.card}>
