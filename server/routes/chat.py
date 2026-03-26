@@ -181,12 +181,12 @@ async def send_message(req: MessageRequest):
 
         db.add_message(req.session_id, "bot", result["bot_message"], result["next_state_id"])
 
-        # Compliance: store on conversation end
+        # Compliance: store on conversation end (awaited so Lambda doesn't exit before it runs)
         if has_lead and result["is_end"]:
             full_session = {**session, "collected_data": new_data,
                             "compliance_status": session.get("compliance_status", "none"),
                             "is_complete": True}
-            asyncio.create_task(_store_compliance(full_session, req.session_id, "complete"))
+            await _store_compliance(full_session, req.session_id, "complete")
 
         return_state = None  # session is now in DB, client can stop sending state
     else:
