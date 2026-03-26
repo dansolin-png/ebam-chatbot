@@ -182,6 +182,10 @@ def list_leads() -> list[dict]:
     return sorted(items, key=lambda x: x.get("created_at", ""), reverse=True)
 
 
+def delete_lead(lead_id: str):
+    tbl_leads.delete_item(Key={"lead_id": lead_id})
+
+
 def delete_all_data():
     for item in tbl_leads.scan().get("Items", []):
         tbl_leads.delete_item(Key={"lead_id": item["lead_id"]})

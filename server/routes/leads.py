@@ -17,6 +17,12 @@ def clear_all_data(_=Depends(require_auth)):
     return {"message": "All data cleared."}
 
 
+@router.delete("/{lead_id}")
+def delete_lead(lead_id: str, _=Depends(require_auth)):
+    db.delete_lead(lead_id)
+    return {"message": f"Lead {lead_id} deleted."}
+
+
 @router.get("/")
 def list_leads(_=Depends(require_auth)):
     return db.list_leads()

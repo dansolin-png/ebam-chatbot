@@ -241,6 +241,15 @@ export default function LeadsPage() {
     setSelectedLead(null)
   }
 
+  async function handleDeleteLead(lead, e) {
+    e?.stopPropagation()
+    if (!confirm(`Delete lead for ${lead.name || lead.email}?`)) return
+    const token = localStorage.getItem('ebam_token') || ''
+    await fetch(API_BASE + `/api/leads/${lead.lead_id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    setLeads(prev => prev.filter(l => l.lead_id !== lead.lead_id))
+    if (selectedLead?.lead_id === lead.lead_id) setSelectedLead(null)
+  }
+
   function downloadCSV() {
     const headers = ['Name', 'Email', 'Type', 'Date']
     const rows = filtered.map(l => [l.name || '', l.email || '', l.user_type || '', formatDate(l.created_at, tz)])
@@ -338,7 +347,7 @@ export default function LeadsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['Name', 'Email', 'Type', 'Captured'].map(h => (
+                    {['Name', 'Email', 'Type', 'Captured', ''].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
@@ -360,6 +369,15 @@ export default function LeadsPage() {
                         )}
                       </td>
                       <td style={{ ...tdStyle, color: '#94a3b8', fontSize: '12px' }}>{formatDate(lead.created_at, tz)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <button
+                          onClick={e => handleDeleteLead(lead, e)}
+                          title="Delete lead"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: 15, padding: '2px 4px', borderRadius: 4, lineHeight: 1 }}
+                          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                          onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}
+                        >🗑</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -370,7 +388,7 @@ export default function LeadsPage() {
       </div>
 
       {selectedLead && (
-        <LeadDetail lead={selectedLead} onClose={() => setSelectedLead(null)} tz={tz} />
+        <LeadDetail lead={selectedLead} onClose={() => setSelectedLead(null)} onDelete={() => handleDeleteLead(selectedLead)} tz={tz} />
       )}
     </div>
   )
@@ -379,7 +397,7 @@ export default function LeadsPage() {
 // ---------------------------------------------------------------------------
 // Lead detail panel
 // ---------------------------------------------------------------------------
-function LeadDetail({ lead, onClose, tz }) {
+function LeadDetail({ lead, onClose, onDelete, tz }) {
   const [messages, setMessages]     = useState(null)
   const [loadingMsgs, setLoadingMsgs] = useState(true)
 
@@ -398,7 +416,10 @@ function LeadDetail({ lead, onClose, tz }) {
             <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{lead.name || 'Unknown'}</div>
             <div style={{ fontSize: '13px', color: '#64748b', marginTop: 2 }}>{lead.email}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '18px', lineHeight: 1, padding: '2px 4px' }}>✕</button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={onDelete} title="Delete lead" style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', color: '#ef4444', fontSize: 12, padding: '4px 10px', fontWeight: 600 }}>Delete</button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '18px', lineHeight: 1, padding: '2px 4px' }}>✕</button>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           {lead.user_type && (
