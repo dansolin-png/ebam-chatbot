@@ -30,6 +30,11 @@ def store_lead(session: dict, messages: list, record_type: str = "partial"):
         log.info(f"Skipping compliance store for {session_id} — already complete")
         return None
 
+    # Never re-store a timeout record (idle scanner runs repeatedly)
+    if compliance_status == "timeout" and record_type == "timeout":
+        log.info(f"Skipping duplicate timeout store for {session_id}")
+        return None
+
     # Don't store a partial if one already exists (unless upgrading to complete/timeout)
     if compliance_status == "partial" and record_type == "partial":
         log.info(f"Skipping duplicate partial store for {session_id}")

@@ -81,7 +81,8 @@ def get_idle_sessions(idle_minutes: int = 30) -> list[dict]:
         FilterExpression=(
             Attr("is_complete").eq(False) &
             Attr("last_activity_at").lt(cutoff) &
-            (Attr("compliance_status").not_exists() | Attr("compliance_status").ne("complete"))
+            (Attr("compliance_status").not_exists() |
+             (Attr("compliance_status").ne("complete") & Attr("compliance_status").ne("timeout")))
         )
     )
     # Only return sessions with name + email collected
