@@ -241,6 +241,19 @@ async def process_message(
                 "user_type": None,
             }
 
+        # Email validation
+        if capture_field == "email" and value:
+            import re
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
+                return {
+                    "next_state_id": current_state_id,
+                    "bot_message": "That doesn't look like a valid email address. Could you double-check and try again?",
+                    "bot_options": None,
+                    "captured": {},
+                    "is_end": False,
+                    "user_type": None,
+                }
+
         captured = {capture_field: value} if capture_field and value else {}
         next_state = get_state(flow, next_state_id)
         merged = {**collected_data, **captured}
