@@ -58,7 +58,7 @@ def is_origin_allowed(origin: str | None, allowed_origins: list[str]) -> bool:
     - Otherwise exact match (scheme + host + optional port).
     """
     if not allowed_origins:
-        return False  # fail closed — misconfigured origins block requests
+        return True   # no origins configured — check disabled, allow all
     if "*" in allowed_origins:
         return True
     if not origin:
