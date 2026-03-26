@@ -268,14 +268,12 @@ async def process_message(
 
     # --- LLM state ---
     elif state_type == "llm":
-        # Check if the user input matches an exit option (e.g. "I'd like to get in touch")
-        # Only use exact match here — any free-form text should go to the LLM, not trigger an exit
         exit_options = state.get("options", [])
         exit_transitions = state.get("transitions", {})
         if exit_options:
             matched_exit = _match_option(user_input, exit_options)
             if not matched_exit:
-                matched_exit = await _smart_match_option(user_input, exit_options)
+                matched_exit = await _match_exit_intent(user_input, exit_options)
             if matched_exit:
                 next_state_id = exit_transitions.get(matched_exit, state.get("fallback", "start"))
                 next_state = get_state(flow, next_state_id)
@@ -357,6 +355,43 @@ def _match_option(user_input: str, options: list[str]) -> str | None:
         if opt.lower() == lowered:
             return opt
     return None
+
+
+async def _match_exit_intent(user_input: str, exit_options: list[str]) -> str | None:
+    """
+    Detect if the user wants to exit the LLM conversation (e.g. get in touch, contact, schedule).
+    Much simpler/more lenient than _smart_match_option — only used for LLM state exit options.
+    """
+    if not exit_options:
+        return None
+    # Fast keyword check first — covers the common cases without an LLM call
+    _CONTACT_KEYWORDS = [
+        "get in touch", "in touch", "contact", "reach out", "call me", "schedule",
+        "consultation", "talk to", "speak to", "connect", "callback", "sign up",
+        "interested", "let's do it", "yes please", "sounds good", "let's go",
+    ]
+    lowered = user_input.lower()
+    if any(kw in lowered for kw in _CONTACT_KEYWORDS):
+        return exit_options[0]  # only one exit option in LLM states
+    # Fallback: quick LLM intent check
+    options_list = "\n".join(f"- {opt}" for opt in exit_options)
+    prompt = (
+        f"A user is chatting with a marketing assistant. At any point they can exit by expressing "
+        f"interest in being contacted. The exit options are:\n{options_list}\n\n"
+        f"User said: \"{user_input}\"\n\n"
+        f"Does the user want to be contacted / get in touch / schedule a consultation? "
+        f"Answer YES or NO only."
+    )
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = response.content[0].text.strip().upper()
+        return exit_options[0] if result.startswith("YES") else None
+    except Exception:
+        return None
 
 
 async def _smart_match_option(user_input: str, options: list[str]) -> str | None:
