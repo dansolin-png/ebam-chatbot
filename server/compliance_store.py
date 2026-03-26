@@ -22,6 +22,7 @@ import compliance as comp
 import dynamo_compliance as dbc
 import dynamo as db
 import s3_compliance as s3c
+import sns_client as sns
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +94,13 @@ def store_lead(session: dict, messages: list, record_type: str = "partial"):
                 log.error(
                     f"Chain tip conflict unresolved after {_MAX_CHAIN_RETRIES} retries "
                     f"for session {session_id}"
+                )
+                sns.publish_alert(
+                    f"[EBAM CRITICAL] Chain tip conflict unresolved for session {session_id}",
+                    f"Compliance record could NOT be written for session {session_id}.\n"
+                    f"All {_MAX_CHAIN_RETRIES} atomic write retries failed (ChainTipConflict).\n"
+                    f"Record type: {record_type}\n"
+                    f"Manual intervention may be required to store this lead.",
                 )
                 raise
             log.warning(

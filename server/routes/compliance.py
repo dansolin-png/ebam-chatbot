@@ -21,6 +21,7 @@ import dynamo as db
 import dynamo_compliance as dbc
 import s3_compliance as s3c
 import kms_client as kms
+import sns_client as sns
 from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,14 @@ class BatchRequest(BaseModel):
 def seal_batch(req: BatchRequest = BatchRequest(), _=Depends(require_admin)):
     batch_id = req.batch_id or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    try:
+        return _do_seal_batch(batch_id)
+    except Exception as e:
+        sns.publish_exception_alert(f"seal_batch {batch_id}", e)
+        raise
+
+
+def _do_seal_batch(batch_id: str) -> dict:
     # Check already sealed
     existing = dbc.get_batch(batch_id)
     if existing and existing.get("status") == "sealed":
@@ -191,6 +200,7 @@ def verify_record(record_id: str, _=Depends(require_admin)):
         result["valid"] = all(result["checks"].values())
 
     except Exception as e:
+        sns.publish_exception_alert(f"verify_record {record_id}", e)
         result["detail"] = str(e)
 
     return result
@@ -248,6 +258,7 @@ def verify_session(session_id: str, _=Depends(require_admin)):
         result["valid"] = all(result["checks"].values())
 
     except Exception as e:
+        sns.publish_exception_alert(f"verify_session {session_id}", e)
         result["detail"] = str(e)
 
     return result
@@ -283,6 +294,7 @@ async def scan_idle(req: ScanIdleRequest = ScanIdleRequest(), _=Depends(require_
         except Exception as e:
             errors += 1
             log.error(f"Timeout compliance failed for session {session.get('session_id')}: {e}")
+            sns.publish_exception_alert(f"scan_idle session {session.get('session_id')}", e)
 
     return {
         "message": f"Idle scan complete",

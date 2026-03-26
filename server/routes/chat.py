@@ -242,6 +242,8 @@ async def _store_compliance(session: dict, session_id: str, record_type: str = "
         )
     except Exception as e:
         log.error(f"Compliance [{record_type}] storage failed for session {session_id}: {e}")
+        import sns_client as sns
+        sns.publish_exception_alert(f"compliance store [{record_type}] session {session_id}", e)
 
 
 @router.get("/history/{session_id}")

@@ -24,6 +24,7 @@ import dynamo_compliance as dbc
 import dynamo_history as dh
 import kms_client as kms
 import s3_compliance as s3c
+import sns_client as sns
 from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ def available_days(_=Depends(require_admin)):
     try:
         all_days = _list_s3_days()
     except Exception as e:
+        sns.publish_exception_alert("history available_days S3 listing", e)
         raise HTTPException(status_code=500, detail=f"S3 listing failed: {e}")
 
     cutoff = _cutoff_date()
@@ -159,6 +161,7 @@ def fetch_date(date: str, _=Depends(require_admin)):
     try:
         keys = _list_objects_for_date(date)
     except Exception as e:
+        sns.publish_exception_alert(f"history fetch_date {date} S3 listing", e)
         raise HTTPException(status_code=500, detail=f"S3 listing failed: {e}")
 
     if not keys:
@@ -209,6 +212,7 @@ def fetch_date(date: str, _=Depends(require_admin)):
 
         except Exception as e:
             log.error(f"Failed to load S3 key {key}: {e}")
+            sns.publish_exception_alert(f"history fetch_date {date} key {key}", e)
             errors += 1
 
     records = list(best.values())
@@ -314,6 +318,7 @@ def verify_history_lead(history_id: str, _=Depends(require_admin)):
         result["valid"] = all(result["checks"].values())
 
     except Exception as e:
+        sns.publish_exception_alert(f"verify_history_lead {history_id}", e)
         result["detail"] = str(e)
 
     return result
