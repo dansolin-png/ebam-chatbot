@@ -9,6 +9,7 @@ Historical Leads API — fetch lead data older than 30 days from S3 WORM.
   DELETE /api/history/leads/{date}      — delete all records for a specific date
   DELETE /api/history/leads             — delete ALL history records
 """
+import base64
 import decimal
 import json
 import logging
@@ -18,7 +19,11 @@ from datetime import datetime, timezone, timedelta
 import boto3
 from fastapi import APIRouter, HTTPException, Depends
 
+import compliance as comp
+import dynamo_compliance as dbc
 import dynamo_history as dh
+import kms_client as kms
+import s3_compliance as s3c
 from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
@@ -119,13 +124,15 @@ def _best_record_per_session(records: list[dict]) -> list[dict]:
 @router.get("/available-days")
 def available_days(_=Depends(require_admin)):
     """
-    List all S3 day prefixes that have lead objects.
+    List S3 day prefixes that have lead objects and are older than MIN_HISTORY_DAYS.
+    Data within the last 30 days is accessible via the Leads section.
     """
     try:
         all_days = _list_s3_days()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"S3 listing failed: {e}")
 
+    cutoff = _cutoff_date()
     fetched_dates = {fd["date"] for fd in dh.list_fetched_dates()}
 
     return [
@@ -134,6 +141,7 @@ def available_days(_=Depends(require_admin)):
             "fetched":  d in fetched_dates,
         }
         for d in all_days
+        if d <= cutoff   # only expose data older than 30 days
     ]
 
 
@@ -245,6 +253,69 @@ def list_leads_for_date(date: str, _=Depends(require_admin)):
     records = dh.get_records_for_date(date)
     deduped = _best_record_per_session(records)
     return [_serialize(r) for r in deduped]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/history/verify/{history_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/verify/{history_id}")
+def verify_history_lead(history_id: str, _=Depends(require_admin)):
+    """
+    Verify a historical lead against the compliance record for its S3 object.
+    Performs the same 4-step check as /api/compliance/verify/{record_id}.
+    """
+    hist = dh.get_history_record(history_id)
+    if not hist:
+        raise HTTPException(status_code=404, detail="History record not found")
+
+    s3_key = hist.get("s3_key")
+    if not s3_key:
+        raise HTTPException(status_code=400, detail="History record has no S3 key")
+
+    comp_record = dbc.get_record_by_s3_key(s3_key)
+    if not comp_record:
+        raise HTTPException(status_code=404, detail="No compliance record found for this lead")
+
+    result = {
+        "record_id": comp_record["record_id"],
+        "batch_id":  comp_record.get("batch_id"),
+        "s3_key":    s3_key,
+        "checks": {
+            "data_hash":     False,
+            "record_hash":   False,
+            "merkle_proof":  False,
+            "kms_signature": False,
+        },
+        "valid":  False,
+        "detail": "",
+    }
+
+    try:
+        s3_bytes = s3c.get_lead_object_bytes(s3_key)
+        ser_rec  = _serialize(comp_record)
+        result["checks"]["data_hash"]   = comp.compute_data_hash(s3_bytes) == comp_record["data_hash"]
+        result["checks"]["record_hash"] = comp.verify_record_hash(ser_rec, s3_bytes)
+
+        batch = dbc.get_batch(comp_record["batch_id"])
+        if batch and comp_record.get("merkle_proof"):
+            result["checks"]["merkle_proof"]  = comp.verify_merkle_proof(
+                comp_record["record_hash"],
+                comp_record["merkle_proof"],
+                batch["merkle_root"],
+            )
+            result["checks"]["kms_signature"] = kms.verify_merkle_signature(
+                batch["merkle_root"], batch["signature"]
+            )
+        else:
+            result["detail"] = "Batch not yet sealed — Merkle proof not available"
+
+        result["valid"] = all(result["checks"].values())
+
+    except Exception as e:
+        result["detail"] = str(e)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@
 14. [IAM & Security](#14-iam--security)
 15. [Local Development](#15-local-development)
 16. [Environment Variables](#16-environment-variables)
+17. [CloudTrail Audit Logging](#17-cloudtrail-audit-logging)
 
 ---
 
@@ -81,10 +82,11 @@ The chatbot (named **Alex**) engages visitors on the website, educates them abou
 | Lambda | Serverless API runtime |
 | API Gateway (HTTP API) | API endpoint, custom domain routing |
 | Amplify | Frontend hosting + CDN |
-| DynamoDB | Primary data store (sessions, messages, leads, config) |
-| S3 (Object Lock) | WORM compliance archive |
+| DynamoDB | Primary data store (sessions, messages, leads, config, rate limits) |
+| S3 (Object Lock) | WORM compliance archive + CloudTrail audit logs |
 | KMS | Encryption (symmetric) + Merkle root signing (RSA-4096 asymmetric) |
 | EventBridge | Scheduled automation (daily batch seal, idle session scanner) |
+| CloudTrail | AWS API audit trail — every DynamoDB/S3/KMS/Lambda call logged |
 | CloudFront | CDN for Amplify frontend |
 | VPC + NAT Gateway | Lambda network isolation; private DynamoDB access, internet egress for Anthropic API |
 | ACM | TLS certificates for custom domains |
@@ -160,15 +162,20 @@ VPC
 Lambda is deployed as a **zip package** containing all Python source files plus dependencies (`server/package/`). Deployment is done via AWS CLI:
 
 ```bash
-# Build
-pip install -r requirements.txt -t package/
-cp *.py package/ && cp -r routes package/ && cp -r flows package/
-cd package && zip -r ../lambda.zip . -x "*.pyc" -x "__pycache__/*"
+cd server/
+zip -r /tmp/ebam-deploy.zip . -x "venv/*" -x "*.pyc" -x "*/__pycache__/*" -x "__pycache__/*"
+zip -d /tmp/ebam-deploy.zip ".env" "ebam.db" "lambda.zip" 2>/dev/null || true
 
-# Deploy
+# Upload via S3 (zip is ~52 MB — exceeds Lambda's direct upload limit)
+aws s3 cp /tmp/ebam-deploy.zip s3://ebam-compliance-leads/deployments/ebam-deploy.zip \
+  --profile ebam --region us-east-1 --no-progress
 aws lambda update-function-code --function-name ebam-api \
-  --zip-file fileb://lambda.zip --profile ebam --region us-east-1
+  --s3-bucket ebam-compliance-leads --s3-key deployments/ebam-deploy.zip \
+  --profile ebam --region us-east-1
+aws lambda wait function-updated --function-name ebam-api --profile ebam --region us-east-1
 ```
+
+> **Critical:** `package/` must be included — it contains all Python deps (fastapi, anthropic, boto3, etc.). Excluding it causes `No module named 'fastapi'`. Always remove `.env` from the zip (`zip -d`) — it injects `AWS_PROFILE=ebam` which breaks boto3 in Lambda. Lambda env var `PYTHONPATH=/var/task/package` must remain set.
 
 ---
 
@@ -199,7 +206,9 @@ A self-contained vanilla JS chatbot widget. Embedded via:
 - On open: fetches greeting from `/api/chat/config` and preloads both audience flows in background
 - User selects audience (Advisor / CPA) → uses preloaded response (instant, no wait)
 - Maintains full conversation with input box + quick-reply option buttons
+- **Voice input:** microphone button uses Web Speech API; transcript inserted into text field automatically
 - Dark navy/gold theme matching EBAM branding
+- **Favicon:** `favicon.png` / `favicon.webp` served from `web/public/` — linked in `index.html`
 
 ### Frontend Deployment
 
@@ -246,6 +255,7 @@ Each audience (advisor/cpa) has a JSON flow definition stored in `server/flows/`
 - **Model:** Anthropic Claude (configured via `ANTHROPIC_API_KEY`)
 - **System prompt:** Audience-specific (advisor vs CPA), injected per message
 - **Message history:** Full conversation history sent with every LLM call for context
+- **Exit intent detection:** When the flow defines exit options on an LLM state (e.g. "Get in touch"), a dedicated `_match_exit_intent` function fires first — keyword list check (`"get in touch"`, `"contact"`, `"call me"`, etc.) plus a quick YES/NO LLM fallback — so phrases like "I'd like to get in touch" or "please get in touch" transition to the end state without the bot asking again
 - **Default prompt:** Per-audience fallback prompt for open-ended responses
 
 ### Lead Capture
@@ -306,6 +316,7 @@ All admin endpoints require `Authorization: Bearer <token>` header.
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/leads` | List all leads |
+| DELETE | `/api/leads/{lead_id}` | Delete a single lead by ID |
 | DELETE | `/api/leads/all` | Delete all leads, sessions, messages |
 
 ### Admin (Flow & Config)
@@ -315,9 +326,10 @@ All admin endpoints require `Authorization: Bearer <token>` header.
 | GET | `/api/admin/flow/{audience}` | Get flow config for audience |
 | POST | `/api/admin/flow/{audience}` | Save flow config |
 | DELETE | `/api/admin/flow/{audience}` | Delete flow config (reverts to default) |
-| GET | `/api/admin/chatbot-config` | Get active chatbot config (prompts, greeting) |
-| POST | `/api/admin/chatbot-config` | Save chatbot config |
-| DELETE | `/api/admin/chatbot-config` | Delete chatbot config (reverts to default) |
+| GET | `/api/admin/chatbot-config` | Get active chatbot config (prompts, greeting, allowed origins) |
+| PUT | `/api/admin/chatbot-config` | Save chatbot config (also invalidates origin cache) |
+| POST | `/api/admin/chatbot-config/reset` | Reset chatbot config to factory defaults |
+| GET | `/api/admin/stats` | Get session/lead/message counts |
 
 ### Compliance
 
@@ -456,6 +468,20 @@ Active chatbot configuration (greeting, system prompts, LLM prompts).
 | `config_json` | M | Full config including greeting, per-audience prompts |
 | `updated_at` | S | ISO timestamp |
 
+### ebam-rate-limits
+
+Per-IP message rate limiting counters. Items auto-expire via DynamoDB TTL.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `rate_key` | S (PK) | `{ip}#{window}` — IP address + time window bucket |
+| `count` | N | Number of messages in this window |
+| `ttl` | N | Unix timestamp — auto-deleted after 2 rate windows |
+
+TTL attribute name: `ttl` — must be enabled on table creation (`aws dynamodb update-time-to-live`).
+
+Default limits: **20 messages / 60 seconds** per IP (configurable via `CHAT_RATE_LIMIT` and `CHAT_RATE_WINDOW` env vars).
+
 ### ebam-admin-users
 
 Admin portal user accounts.
@@ -497,10 +523,14 @@ Temporary cache of historical lead data fetched from S3 by admin. No TTL — per
 | Setting | Value |
 |---|---|
 | Region | `us-east-1` |
-| Object Lock | Enabled (bucket-level) |
-| Lock Mode | **COMPLIANCE** — cannot be overridden even by root |
-| Retention Period | **7 years (2555 days)** |
+| Object Lock | Enabled (bucket-level, versioning on) |
+| Lock Mode | **COMPLIANCE** — cannot be overridden even by root (per-object, not bucket default) |
+| Retention Period | **7 years (2555 days)** — applied per-object when `COMPLIANCE_LOCK_ENABLED=true` |
 | Server-Side Encryption | `aws:kms` using `alias/ebam-s3-encryption` (symmetric KMS key) |
+
+> **Test mode:** Set `COMPLIANCE_LOCK_ENABLED=false` on Lambda to write S3 objects without Object Lock retention. Objects written in test mode can be deleted normally. Production should always use `true`.
+>
+> **Note on versioning + delete:** Because the bucket uses versioning, `aws s3 rm` adds a delete marker — it does not remove the actual object version. Locked objects remain protected until the retention date (2033) regardless of delete markers.
 
 ### Object Layout
 
@@ -792,6 +822,21 @@ Catches leads that provided name+email but never completed the conversation.
 | Payload | `POST /api/compliance/scan-idle` with `source: "aws.events"` |
 | Effect | Scans sessions idle >30 min with name+email → stores `timeout` compliance record |
 
+### EventBridge + Mangum Routing
+
+**Important:** Mangum (the ASGI adapter) only handles API Gateway event shapes. EventBridge scheduled events have a different format and are silently rejected by Mangum.
+
+The Lambda `handler()` in `main.py` detects EventBridge events at the top (checks `event.source == "aws.events"`) and calls the compliance functions directly — bypassing Mangum and auth middleware — before returning. API Gateway requests fall through to Mangum as normal.
+
+```python
+def handler(event, context):
+    if _is_eventbridge(event):
+        # Route directly to compliance functions
+        ...
+        return {"statusCode": 200, ...}
+    return _mangum(event, context)   # API Gateway path
+```
+
 ---
 
 ## 14. IAM & Security
@@ -821,6 +866,35 @@ API Gateway and FastAPI middleware both configured to allow:
 - `https://main.d142ap2pr34amq.amplifyapp.com`
 - `http://localhost:5173` (local dev)
 - `http://localhost:3000` (local dev)
+
+Note: CORS headers are advisory for browsers only — they do not block server-to-server requests. The application-level origin check (below) provides enforcement.
+
+### Allowed Origins (Chatbot Widget)
+
+Configurable via the Admin → Chatbot Configuration UI. Stored as `allowed_origins` in `ebam-chatbot-config`.
+
+- If the list is **empty** → all origins are allowed (open mode)
+- `*` in the list → all origins explicitly allowed
+- Otherwise → exact match on `Origin` header (scheme + host + optional port)
+- Requests without an `Origin` header when the list is non-empty → **403 Forbidden**
+
+The allowed-origins list is **cached in memory for 120 seconds** per Lambda instance (TTL configurable via `_ORIGINS_CACHE_TTL`). The cache is invalidated immediately when chatbot config is saved.
+
+Implemented in `server/rate_limit.py` (`is_origin_allowed`, `get_allowed_origins_cached`, `invalidate_origins_cache`). Applied in `POST /api/chat/start` and `POST /api/chat/message`.
+
+### Rate Limiting
+
+Per-IP message rate limiter applied to `POST /api/chat/message`.
+
+- **Default:** 20 messages per 60-second window per IP
+- Counter stored in `ebam-rate-limits` DynamoDB table (atomic `update_item` with `if_not_exists`)
+- Time window = `floor(unix_time / RATE_WINDOW_SEC)` — new bucket every minute
+- TTL auto-expires items after 2 windows (120 seconds)
+- On DynamoDB error → **fail open** (allow request) to avoid blocking real users on AWS issues
+- Returns HTTP **429** when limit exceeded: `"Too many messages. Please wait a moment before continuing."`
+- IP extracted from `X-Forwarded-For` header (first value) or falls back to `request.client.host`
+
+Configurable via env vars: `CHAT_RATE_LIMIT` (default `20`) and `CHAT_RATE_WINDOW` (default `60`).
 
 ---
 
@@ -874,12 +948,107 @@ npm run build
 | `SECRET_KEY` | Recommended | JWT signing secret (default: `ebam-secret-key-change-in-production`) |
 | `ADMIN_PASSWORD` | Recommended | Superadmin password (default: `admin`) |
 | `KMS_ENCRYPT_KEY_ID` | No | KMS key alias for S3 encryption (default: `alias/ebam-s3-encryption`) |
+| `COMPLIANCE_LOCK_ENABLED` | No | `true` (default) — puts S3 Object Lock COMPLIANCE mode on each lead file. Set to `false` in test/dev to write unlocked objects that can be deleted normally. |
+| `CHAT_RATE_LIMIT` | No | Max messages per IP per rate window (default: `20`) |
+| `CHAT_RATE_WINDOW` | No | Rate window in seconds (default: `60`) |
 
 ### Frontend
 
 | Variable | Description |
 |---|---|
 | `VITE_API_BASE_URL` | API base URL for production (set in `web/.env.production`). Currently: `https://api.buzzybrains.net` |
+
+---
+
+## 17. CloudTrail Audit Logging
+
+### Trail: `ebam-audit`
+
+Every AWS API call made within the account (DynamoDB reads/writes, S3 PutObject/GetObject, KMS Sign/Verify, Lambda invocations) is captured by CloudTrail and stored in S3.
+
+| Setting | Value |
+|---|---|
+| Trail name | `ebam-audit` |
+| S3 bucket | `ebam-compliance-leads` |
+| S3 prefix | `cloudtrail/` |
+| Log file validation | **Enabled** — CloudTrail signs each log file; tampering is detectable |
+| Region | `us-east-1` (management events) |
+
+### What Gets Logged
+
+- All **DynamoDB** operations (`PutItem`, `GetItem`, `UpdateItem`, `DeleteItem`, `Scan`, `Query`)
+- All **S3** operations on `ebam-compliance-leads` (`PutObject`, `GetObject`, `DeleteObject`)
+- All **KMS** operations (`Sign`, `Verify`, `GenerateDataKey`, `Decrypt`)
+- All **Lambda** invocations (`Invoke`)
+- All **IAM / admin** API calls
+- All **EventBridge** rule invocations
+
+### Log Location
+
+```
+s3://ebam-compliance-leads/cloudtrail/AWSLogs/{account_id}/CloudTrail/us-east-1/YYYY/MM/DD/
+```
+
+Files are gzip-compressed JSON, named `{account_id}_CloudTrail_us-east-1_{timestamp}_{random}.json.gz`.
+
+### Querying Logs with Athena
+
+1. Create an Athena table pointing at `s3://ebam-compliance-leads/cloudtrail/`:
+
+```sql
+CREATE EXTERNAL TABLE cloudtrail_logs (
+    eventVersion STRING,
+    userIdentity STRUCT<type:STRING, principalId:STRING, arn:STRING, accountId:STRING>,
+    eventTime STRING,
+    eventSource STRING,
+    eventName STRING,
+    awsRegion STRING,
+    sourceIPAddress STRING,
+    requestParameters STRING,
+    responseElements STRING,
+    errorCode STRING,
+    errorMessage STRING
+)
+PARTITIONED BY (year STRING, month STRING, day STRING)
+ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
+LOCATION 's3://ebam-compliance-leads/cloudtrail/AWSLogs/{account_id}/CloudTrail/us-east-1/'
+TBLPROPERTIES ('has_encrypted_data'='false');
+```
+
+2. Example queries:
+
+```sql
+-- All KMS Sign operations (batch seals)
+SELECT eventTime, eventName, userIdentity.arn, errorCode
+FROM cloudtrail_logs
+WHERE eventSource = 'kms.amazonaws.com' AND eventName = 'Sign'
+ORDER BY eventTime DESC;
+
+-- All S3 PutObject calls to leads/
+SELECT eventTime, requestParameters, sourceIPAddress
+FROM cloudtrail_logs
+WHERE eventSource = 's3.amazonaws.com'
+  AND eventName = 'PutObject'
+  AND requestParameters LIKE '%leads/%'
+ORDER BY eventTime DESC;
+
+-- Lambda invocations in the last 24 hours
+SELECT eventTime, sourceIPAddress, errorCode
+FROM cloudtrail_logs
+WHERE eventSource = 'lambda.amazonaws.com'
+  AND eventName = 'Invoke'
+ORDER BY eventTime DESC
+LIMIT 100;
+```
+
+### Verifying Log Integrity
+
+```bash
+aws cloudtrail validate-log-file-integrity \
+  --trail-arn arn:aws:cloudtrail:us-east-1:{account_id}:trail/ebam-audit \
+  --start-time 2026-01-01T00:00:00Z \
+  --profile ebam --region us-east-1
+```
 
 ---
 
@@ -890,8 +1059,8 @@ npm run build
 | Lambda Function | `ebam-api` | All backend logic |
 | API Gateway | `l7ha0wuja1` | HTTP API, routes to Lambda |
 | Amplify App | `d142ap2pr34amq` | Frontend hosting |
-| DynamoDB Tables | `ebam-sessions`, `ebam-messages`, `ebam-leads`, `ebam-flow-configs`, `ebam-chatbot-config`, `ebam-admin-users`, `ebam-compliance-records`, `ebam-compliance-batches`, `ebam-leads-history` | All data storage |
-| S3 Bucket | `ebam-compliance-leads` | WORM compliance archive |
+| DynamoDB Tables | `ebam-sessions`, `ebam-messages`, `ebam-leads`, `ebam-flow-configs`, `ebam-chatbot-config`, `ebam-admin-users`, `ebam-compliance-records`, `ebam-compliance-batches`, `ebam-leads-history`, `ebam-rate-limits` | All data storage |
+| S3 Bucket | `ebam-compliance-leads` | WORM compliance archive + CloudTrail logs |
 | KMS Key | `alias/ebam-s3-encryption` | S3 object encryption |
 | KMS Key | `alias/ebam-merkle-signing` | Batch Merkle root signing |
 | EventBridge Rule | `ebam-daily-compliance-batch` | Nightly batch seal |
@@ -899,3 +1068,4 @@ npm run build
 | IAM Role | `ebam-lambda-role` | Lambda execution permissions |
 | Custom Domain | `ebam.buzzybrains.net` | Frontend |
 | Custom Domain | `api.buzzybrains.net` | Backend API |
+| CloudTrail Trail | `ebam-audit` | AWS API audit log → `s3://ebam-compliance-leads/cloudtrail/` |

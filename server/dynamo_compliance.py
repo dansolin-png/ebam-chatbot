@@ -70,6 +70,39 @@ def update_record_merkle_proof(record_id: str, merkle_proof: list, merkle_index:
     )
 
 
+def get_best_record_for_session(session_id: str) -> dict | None:
+    """Find the best compliance record for a session (complete > timeout > partial)."""
+    from boto3.dynamodb.conditions import Attr
+    rank = {"complete": 0, "timeout": 1, "partial": 2}
+    items = []
+    resp = RECORDS_TABLE.scan(FilterExpression=Attr("session_id").eq(session_id))
+    items.extend(resp.get("Items", []))
+    while "LastEvaluatedKey" in resp:
+        resp = RECORDS_TABLE.scan(
+            FilterExpression=Attr("session_id").eq(session_id),
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
+        )
+        items.extend(resp.get("Items", []))
+    if not items:
+        return None
+    return min(items, key=lambda r: rank.get(r.get("record_type", "partial"), 9))
+
+
+def get_record_by_s3_key(s3_key: str) -> dict | None:
+    """Find a compliance record by its S3 key (full scan with filter)."""
+    from boto3.dynamodb.conditions import Attr
+    items = []
+    resp = RECORDS_TABLE.scan(FilterExpression=Attr("s3_key").eq(s3_key))
+    items.extend(resp.get("Items", []))
+    while "LastEvaluatedKey" in resp:
+        resp = RECORDS_TABLE.scan(
+            FilterExpression=Attr("s3_key").eq(s3_key),
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
+        )
+        items.extend(resp.get("Items", []))
+    return items[0] if items else None
+
+
 def list_recent_records(limit: int = 50) -> list[dict]:
     """Scan recent compliance records (for UI display)."""
     response = RECORDS_TABLE.scan(Limit=limit)

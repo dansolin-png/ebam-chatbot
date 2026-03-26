@@ -181,6 +181,62 @@ def verify_record(record_id: str, _=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/compliance/verify-session/{session_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/verify-session/{session_id}")
+def verify_session(session_id: str, _=Depends(require_admin)):
+    """
+    Verify the best compliance record for a session (complete > timeout > partial).
+    Same 4-step check as /verify/{record_id}.
+    """
+    comp_record = dbc.get_best_record_for_session(session_id)
+    if not comp_record:
+        raise HTTPException(status_code=404, detail="No compliance record found for this session")
+
+    record_id = comp_record["record_id"]
+    result = {
+        "record_id": record_id,
+        "batch_id":  comp_record.get("batch_id"),
+        "s3_key":    comp_record.get("s3_key"),
+        "checks": {
+            "data_hash":     False,
+            "record_hash":   False,
+            "merkle_proof":  False,
+            "kms_signature": False,
+        },
+        "valid":  False,
+        "detail": "",
+    }
+
+    try:
+        s3_bytes = s3c.get_lead_object_bytes(comp_record["s3_key"])
+        chain_ok = comp.verify_record_hash(_serialize(comp_record), s3_bytes)
+        result["checks"]["data_hash"]   = comp.compute_data_hash(s3_bytes) == comp_record["data_hash"]
+        result["checks"]["record_hash"] = chain_ok
+
+        batch = dbc.get_batch(comp_record["batch_id"])
+        if batch and comp_record.get("merkle_proof"):
+            result["checks"]["merkle_proof"]  = comp.verify_merkle_proof(
+                comp_record["record_hash"],
+                comp_record["merkle_proof"],
+                batch["merkle_root"],
+            )
+            result["checks"]["kms_signature"] = kms.verify_merkle_signature(
+                batch["merkle_root"], batch["signature"]
+            )
+        else:
+            result["detail"] = "Batch not yet sealed — Merkle proof not available"
+
+        result["valid"] = all(result["checks"].values())
+
+    except Exception as e:
+        result["detail"] = str(e)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # POST /api/compliance/scan-idle
 # Called by EventBridge every 30 min, or manually from admin
 # Scans for sessions with name+email collected but idle > 30 min

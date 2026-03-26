@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getLeadsList as getLeads } from '../api/admin.js'
+import { verifySession } from '../api/compliance.js'
 import { renderMessageHtml } from '../utils/renderMessage.js'
 import { API_BASE } from '../api/base.js'
 
@@ -44,8 +45,15 @@ function buildCalendar(tz) {
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
+function cutoffDateStr(tz) {
+  const d = new Date()
+  d.setDate(d.getDate() - 29)   // last 30 days inclusive of today
+  return toLocalDateStr(d.toISOString(), tz)
+}
+
 function CalendarPopup({ tz, setTz, localTz, countByDate, selectedDate, setSelectedDate, onClose }) {
   const todayStr = toLocalDateStr(new Date().toISOString(), tz)
+  const cutoff   = cutoffDateStr(tz)
   const [year, setYear]   = useState(() => parseInt(todayStr.slice(0, 4)))
   const [month, setMonth] = useState(() => parseInt(todayStr.slice(5, 7)) - 1) // 0-indexed
   const [tzInput, setTzInput] = useState(tz)
@@ -98,6 +106,11 @@ function CalendarPopup({ tz, setTz, localTz, countByDate, selectedDate, setSelec
       fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
     }}>
 
+      {/* Window notice */}
+      <div style={{ padding: '7px 14px', backgroundColor: '#eff6ff', borderBottom: '1px solid #dbeafe', fontSize: 10, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span>ℹ</span>
+        <span>Showing last 30 days only. For older data, use <em>Historical Leads</em>.</span>
+      </div>
       {/* Timezone row */}
       <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
         <div style={{ display: 'flex', border: '1.5px solid #e2e8f0', borderRadius: 6, overflow: 'hidden', marginBottom: 7 }}>
@@ -146,14 +159,21 @@ function CalendarPopup({ tz, setTz, localTz, countByDate, selectedDate, setSelec
         {cells.map((cell, i) => {
           const dateStr  = cellDate(cell)
           const isFuture = dateStr && dateStr > todayStr
+          const isTooOld = dateStr && dateStr < cutoff
           const isSelected = dateStr && dateStr === selectedDate
           const isToday    = dateStr === todayStr
           const count      = dateStr ? (countByDate[dateStr] || 0) : 0
-          const disabled   = !cell.cur || isFuture
+          const disabled   = !cell.cur || isFuture || isTooOld
+          const cellTitle  = isTooOld
+            ? 'Older than 30 days — use Historical Leads section'
+            : isFuture ? 'Future date'
+            : count > 0 ? `${count} lead${count !== 1 ? 's' : ''} on this day`
+            : 'No leads on this day'
 
           return (
             <div
               key={i}
+              title={cellTitle}
               onClick={() => {
                 if (disabled) return
                 setSelectedDate(isSelected ? null : dateStr)
@@ -171,11 +191,11 @@ function CalendarPopup({ tz, setTz, localTz, countByDate, selectedDate, setSelec
                 fontSize: 13,
                 fontWeight: isToday || isSelected ? 700 : 400,
                 backgroundColor: isSelected ? '#1e3a5f' : isToday ? '#e0e7ff' : 'transparent',
-                color: isSelected ? '#fff' : isToday ? '#1e3a5f' : isFuture ? '#e2e8f0' : cell.cur ? '#1e293b' : '#cbd5e1',
+                color: isSelected ? '#fff' : isToday ? '#1e3a5f' : (isFuture || isTooOld) ? '#e2e8f0' : cell.cur ? '#1e293b' : '#cbd5e1',
               }}>
                 {cell.d}
               </span>
-              {count > 0 && cell.cur && !isFuture && (
+              {count > 0 && cell.cur && !isFuture && !isTooOld && (
                 <span style={{
                   position: 'absolute', bottom: 3, left: '50%', transform: 'translateX(-50%)',
                   width: 5, height: 5, borderRadius: '50%',
@@ -233,14 +253,6 @@ export default function LeadsPage() {
     return list
   }, [leads, filter, selectedDate, tz])
 
-  async function handleClearAll() {
-    if (!confirm('Delete ALL leads, sessions, and messages? This cannot be undone.')) return
-    const token = localStorage.getItem('ebam_token') || ''
-    await fetch(API_BASE + '/api/leads/all', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
-    setLeads([])
-    setSelectedLead(null)
-  }
-
   async function handleDeleteLead(lead, e) {
     e?.stopPropagation()
     if (!confirm(`Delete lead for ${lead.name || lead.email}?`)) return
@@ -282,6 +294,10 @@ export default function LeadsPage() {
                 {filtered.length} lead{filtered.length !== 1 ? 's' : ''}
                 {selectedDate ? ' on this date' : ` of ${leads.length} total`}
               </p>
+              <p style={{ color: '#1e40af', fontSize: 12, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span title="Data older than 30 days is available in the Historical Leads section">ℹ</span>
+                Last 30 days only. For older data, use <strong style={{ marginLeft: 3 }}>Historical Leads</strong>.
+              </p>
             </div>
 
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -304,7 +320,7 @@ export default function LeadsPage() {
               <div style={{ position: 'relative' }}>
                 <button
                   onClick={() => setCalOpen(v => !v)}
-                  title="Filter by date"
+                  title="Filter by date — last 30 days only. Use Historical Leads for older data."
                   style={{
                     backgroundColor: selectedDate ? '#1e3a5f' : '#fff',
                     border: '1.5px solid ' + (selectedDate ? '#1e3a5f' : '#e2e8f0'),
@@ -330,9 +346,6 @@ export default function LeadsPage() {
 
               <button onClick={downloadCSV} style={{ backgroundColor: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '8px', padding: '7px 14px', fontSize: '13px', color: '#1e3a5f', fontWeight: 600, cursor: 'pointer' }}>
                 Export CSV
-              </button>
-              <button onClick={handleClearAll} style={{ backgroundColor: '#fff', border: '1.5px solid #fecaca', borderRadius: '8px', padding: '7px 14px', fontSize: '13px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
-                Clear All
               </button>
             </div>
           </div>
@@ -398,8 +411,11 @@ export default function LeadsPage() {
 // Lead detail panel
 // ---------------------------------------------------------------------------
 function LeadDetail({ lead, onClose, onDelete, tz }) {
-  const [messages, setMessages]     = useState(null)
-  const [loadingMsgs, setLoadingMsgs] = useState(true)
+  const [messages, setMessages]         = useState(null)
+  const [loadingMsgs, setLoadingMsgs]   = useState(true)
+  const [verifying, setVerifying]       = useState(false)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [verifyError, setVerifyError]   = useState(null)
 
   useEffect(() => {
     setLoadingMsgs(true)
@@ -407,6 +423,32 @@ function LeadDetail({ lead, onClose, onDelete, tz }) {
       .then(r => r.json()).then(setMessages).catch(() => setMessages([]))
       .finally(() => setLoadingMsgs(false))
   }, [lead.session_id])
+
+  // Reset verify state when lead changes
+  useEffect(() => { setVerifyResult(null); setVerifyError(null) }, [lead.session_id])
+
+  async function handleVerify() {
+    setVerifying(true)
+    setVerifyResult(null)
+    setVerifyError(null)
+    try {
+      const result = await verifySession(lead.session_id)
+      setVerifyResult(result)
+    } catch (e) {
+      setVerifyError(e.message)
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const batchPending = verifyResult?.detail === 'Batch not yet sealed — Merkle proof not available'
+  const coreValid    = verifyResult?.checks?.data_hash && verifyResult?.checks?.record_hash
+  const verifyStatus = !verifyResult ? null
+    : verifyResult.valid        ? { label: '✓ Record Verified — Tamper-Free',                 color: '#16a34a' }
+    : batchPending && coreValid ? { label: '✓ Data Integrity Confirmed — Batch Seal Pending', color: '#d97706' }
+    :                             { label: '✗ Verification Failed — Possible Tampering',      color: '#ef4444' }
+  const verifyBorder = !verifyResult ? 'transparent'
+    : verifyResult.valid ? '#16a34a' : (batchPending && coreValid) ? '#d97706' : '#ef4444'
 
   return (
     <div style={{ width: '420px', minWidth: '420px', borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', overflow: 'hidden' }}>
@@ -417,6 +459,13 @@ function LeadDetail({ lead, onClose, onDelete, tz }) {
             <div style={{ fontSize: '13px', color: '#64748b', marginTop: 2 }}>{lead.email}</div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              style={{ backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, cursor: verifying ? 'default' : 'pointer', fontSize: 12, padding: '4px 12px', fontWeight: 600 }}
+            >
+              {verifying ? '…' : 'Verify'}
+            </button>
             <button onClick={onDelete} title="Delete lead" style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', color: '#ef4444', fontSize: 12, padding: '4px 10px', fontWeight: 600 }}>Delete</button>
             <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '18px', lineHeight: 1, padding: '2px 4px' }}>✕</button>
           </div>
@@ -429,6 +478,36 @@ function LeadDetail({ lead, onClose, onDelete, tz }) {
           )}
         </div>
         <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: 8 }}>Captured {formatDate(lead.created_at, tz)}</div>
+
+        {/* Verify result panel */}
+        {verifyError && (
+          <div style={{ marginTop: 12, padding: '10px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
+            {verifyError}
+          </div>
+        )}
+        {verifyResult && (
+          <div style={{ marginTop: 12, padding: '10px 12px', backgroundColor: '#fff', border: `1px solid #e2e8f0`, borderLeft: `4px solid ${verifyBorder}`, borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: verifyStatus.color, marginBottom: 8 }}>
+                {verifyStatus.label}
+              </div>
+              <button onClick={() => setVerifyResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {Object.entries(verifyResult.checks).map(([check, ok]) => {
+                const pending = batchPending && (check === 'merkle_proof' || check === 'kms_signature')
+                return (
+                  <span key={check} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 600,
+                    backgroundColor: pending ? '#fef9c3' : ok ? '#dcfce7' : '#fee2e2',
+                    color: pending ? '#854d0e' : ok ? '#166534' : '#991b1b' }}>
+                    {pending ? '⏳' : ok ? '✓' : '✗'} {check.replace(/_/g, ' ')}{pending ? ' (pending)' : ''}
+                  </span>
+                )
+              })}
+            </div>
+            {verifyResult.detail && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>{verifyResult.detail}</div>}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>

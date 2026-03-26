@@ -6,7 +6,7 @@ import {
   getFetchedDates,
   getLeadsForDate,
   deleteLeadsForDate,
-  deleteAllHistory,
+  verifyHistoryLead,
 } from '../api/history.js'
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,13 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Returns the cutoff date string (today − 30 days). Dates on or before this are eligible for history. */
+function cutoffDateStr() {
+  const d = new Date()
+  d.setDate(d.getDate() - 30)
+  return d.toISOString().slice(0, 10)
+}
+
 // ---------------------------------------------------------------------------
 // Calendar popup for picking historical dates
 // ---------------------------------------------------------------------------
@@ -34,11 +41,12 @@ const DAY_LABELS  = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const navBtnStyle = { background: '#f1f5f9', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 9, color: '#475569', padding: '3px 6px', lineHeight: 1 }
 
-function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClose }) {
+function HistoryCalendarPopup({ availableSet, fetchedSet, cutoff, onPickDate, onClose }) {
   const today   = todayStr()
-  const initD   = new Date()
-  const [year, setYear]   = useState(() => initD.getFullYear())
-  const [month, setMonth] = useState(() => initD.getMonth())
+  // Start on the month of the cutoff date so user lands on usable dates
+  const cutoffD = new Date(cutoff + 'T12:00:00')
+  const [year, setYear]   = useState(() => cutoffD.getFullYear())
+  const [month, setMonth] = useState(() => cutoffD.getMonth())
   const ref = useRef(null)
 
   useEffect(() => {
@@ -73,16 +81,22 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
       borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.14)', zIndex: 1000, overflow: 'hidden',
       fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
     }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', gap: 16, fontSize: 11, color: '#64748b' }}>
+      {/* Legend */}
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', gap: 12, fontSize: 11, color: '#64748b', flexWrap: 'wrap' }}>
         <span><DotIcon color="#3b82f6" /> S3 data</span>
         <span><DotIcon color="#15803d" /> Cached</span>
         <span style={{ color: '#d1d5db' }}>Grey = no data</span>
       </div>
+      {/* Cutoff notice */}
+      <div style={{ padding: '7px 14px', backgroundColor: '#fffbeb', borderBottom: '1px solid #fef3c7', fontSize: 10, color: '#92400e', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span>⚠</span>
+        <span>Only dates <strong>before {cutoff}</strong> are available here. Use <em>Leads</em> for the last 30 days.</span>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 8px' }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{MONTH_NAMES[month]} {year}</span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button onClick={prevMonth} style={navBtnStyle}>▲</button>
-          <button onClick={nextMonth} style={navBtnStyle}>▼</button>
+          <button onClick={prevMonth} style={navBtnStyle} title="Previous month">▲</button>
+          <button onClick={nextMonth} style={navBtnStyle} title="Next month">▼</button>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', padding: '0 10px', marginBottom: 4 }}>
@@ -90,14 +104,23 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', padding: '0 10px 12px', gap: '2px 0' }}>
         {cells.map((cell, i) => {
-          const dateStr   = cellDate(cell)
-          const isFuture  = dateStr && dateStr > today
-          const hasData   = dateStr && availableSet.has(dateStr)
-          const isFetched = dateStr && fetchedSet.has(dateStr)
-          const disabled  = !cell.cur || isFuture || !hasData
+          const dateStr    = cellDate(cell)
+          const isFuture   = dateStr && dateStr > today
+          const isTooRecent = dateStr && dateStr > cutoff
+          const hasData    = dateStr && availableSet.has(dateStr)
+          const isFetched  = dateStr && fetchedSet.has(dateStr)
+          const disabled   = !cell.cur || isFuture || isTooRecent || !hasData
+          const cellTitle  = isTooRecent
+            ? 'Within last 30 days — accessible from the Leads section'
+            : isFuture ? 'Future date'
+            : !hasData && cell.cur ? 'No lead data in S3 for this date'
+            : isFetched ? 'Already cached — click to view'
+            : hasData ? 'S3 data available — click to fetch'
+            : undefined
           return (
             <div
               key={i}
+              title={cellTitle}
               onClick={() => { if (!disabled) { onPickDate(dateStr); onClose() } }}
               style={{ position: 'relative', textAlign: 'center', padding: '5px 0', cursor: disabled ? 'default' : 'pointer' }}
             >
@@ -106,11 +129,11 @@ function HistoryCalendarPopup({ tz, availableSet, fetchedSet, onPickDate, onClos
                 width: 30, height: 30, borderRadius: '50%', fontSize: 13,
                 fontWeight: isFetched ? 700 : 400,
                 backgroundColor: 'transparent',
-                color: isFuture ? '#e2e8f0' : (!hasData && cell.cur) ? '#d1d5db' : cell.cur ? '#1e293b' : '#cbd5e1',
+                color: isFuture || isTooRecent ? '#e2e8f0' : (!hasData && cell.cur) ? '#d1d5db' : cell.cur ? '#1e293b' : '#cbd5e1',
               }}>
                 {cell.d}
               </span>
-              {cell.cur && !isFuture && (isFetched || hasData) && (
+              {cell.cur && !isFuture && !isTooRecent && (isFetched || hasData) && (
                 <span style={{
                   position: 'absolute', bottom: 3, left: '50%', transform: 'translateX(-50%)',
                   width: 5, height: 5, borderRadius: '50%',
@@ -205,15 +228,6 @@ export default function HistoricalLeadsPage() {
     } catch (e) { setError(e.message) }
   }
 
-  async function handleDeleteAll() {
-    if (!confirm('Delete ALL cached historical data? You can re-fetch from S3 any time.')) return
-    try {
-      await deleteAllHistory()
-      await loadDays()
-      closeDrill()
-    } catch (e) { setError(e.message) }
-  }
-
   // Handle calendar pick
   function handleCalPick(date) {
     if (fetchedSet.has(date)) {
@@ -272,6 +286,10 @@ export default function HistoricalLeadsPage() {
                   <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
                     {loadingDays ? 'Loading…' : `${fetchedMeta.length} day${fetchedMeta.length !== 1 ? 's' : ''} cached — use calendar to fetch more`}
                   </p>
+                  <p style={{ color: '#92400e', fontSize: 12, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span title="Data from the last 30 days is available in the Leads section">⚠</span>
+                    Data older than 30 days only. For recent leads, use the <strong style={{ marginLeft: 3 }}>Leads</strong> section.
+                  </p>
                 </>
               )}
             </div>
@@ -297,7 +315,7 @@ export default function HistoricalLeadsPage() {
               <div style={{ position: 'relative' }}>
                 <button
                   onClick={() => setCalOpen(v => !v)}
-                  title="Pick a historical date"
+                  title="Fetch historical lead data from S3 — only dates older than 30 days are available"
                   style={{ backgroundColor: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 8, padding: '7px 11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, color: '#1e3a5f' }}
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -307,9 +325,9 @@ export default function HistoricalLeadsPage() {
                 </button>
                 {calOpen && (
                   <HistoryCalendarPopup
-                    tz={tz}
                     availableSet={availableSet}
                     fetchedSet={fetchedSet}
+                    cutoff={cutoffDateStr()}
                     onPickDate={handleCalPick}
                     onClose={() => setCalOpen(false)}
                   />
@@ -328,11 +346,6 @@ export default function HistoricalLeadsPage() {
                 </button>
               )}
 
-              {fetchedMeta.length > 0 && (
-                <button onClick={handleDeleteAll} style={{ backgroundColor: '#fff', border: '1.5px solid #fecaca', borderRadius: 8, padding: '7px 14px', fontSize: 13, color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
-                  Delete All History
-                </button>
-              )}
             </div>
           </div>
 
@@ -464,6 +477,32 @@ function RecordTypeBadge({ type }) {
 function LeadDetail({ lead, onClose, tz }) {
   const messages  = lead.conversation || []
   const collected = lead.collected_data || {}
+  const [verifying, setVerifying]       = useState(false)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [verifyError, setVerifyError]   = useState(null)
+
+  async function handleVerify() {
+    setVerifying(true)
+    setVerifyResult(null)
+    setVerifyError(null)
+    try {
+      const result = await verifyHistoryLead(lead.history_id)
+      setVerifyResult(result)
+    } catch (e) {
+      setVerifyError(e.message)
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const batchPending = verifyResult?.detail === 'Batch not yet sealed — Merkle proof not available'
+  const coreValid    = verifyResult?.checks?.data_hash && verifyResult?.checks?.record_hash
+  const verifyStatus = !verifyResult ? null
+    : verifyResult.valid        ? { label: '✓ Record Verified — Tamper-Free',                 color: '#16a34a' }
+    : batchPending && coreValid ? { label: '✓ Data Integrity Confirmed — Batch Seal Pending', color: '#d97706' }
+    :                             { label: '✗ Verification Failed — Possible Tampering',      color: '#ef4444' }
+  const verifyBorder = !verifyResult ? 'transparent'
+    : verifyResult.valid ? '#16a34a' : (batchPending && coreValid) ? '#d97706' : '#ef4444'
 
   return (
     <div style={{ width: 420, minWidth: 420, borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', overflow: 'hidden' }}>
@@ -473,7 +512,16 @@ function LeadDetail({ lead, onClose, tz }) {
             <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{lead.name || 'Unknown'}</div>
             <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{lead.email}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1, padding: '2px 4px' }}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              style={{ backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: verifying ? 'default' : 'pointer' }}
+            >
+              {verifying ? '…' : 'Verify'}
+            </button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1, padding: '2px 4px' }}>✕</button>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           {lead.user_type && (
@@ -495,6 +543,36 @@ function LeadDetail({ lead, onClose, tz }) {
           </div>
         )}
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Original date: {formatDate(lead.original_created_at, tz)}</div>
+
+        {/* Verify result panel */}
+        {verifyError && (
+          <div style={{ marginTop: 12, padding: '10px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>
+            {verifyError}
+          </div>
+        )}
+        {verifyResult && (
+          <div style={{ marginTop: 12, padding: '10px 12px', backgroundColor: '#fff', border: `1px solid #e2e8f0`, borderLeft: `4px solid ${verifyBorder}`, borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: verifyStatus.color, marginBottom: 8 }}>
+                {verifyStatus.label}
+              </div>
+              <button onClick={() => setVerifyResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {Object.entries(verifyResult.checks).map(([check, ok]) => {
+                const pending = batchPending && (check === 'merkle_proof' || check === 'kms_signature')
+                return (
+                  <span key={check} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 600,
+                    backgroundColor: pending ? '#fef9c3' : ok ? '#dcfce7' : '#fee2e2',
+                    color: pending ? '#854d0e' : ok ? '#166534' : '#991b1b' }}>
+                    {pending ? '⏳' : ok ? '✓' : '✗'} {check.replace(/_/g, ' ')}{pending ? ' (pending)' : ''}
+                  </span>
+                )
+              })}
+            </div>
+            {verifyResult.detail && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>{verifyResult.detail}</div>}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>

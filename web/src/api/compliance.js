@@ -17,6 +17,7 @@ export const getComplianceRecords = () => apiFetch(`${BASE}/records`)
 export const getComplianceBatches = () => apiFetch(`${BASE}/batches`)
 export const getBatch             = (id) => apiFetch(`${BASE}/batch/${id}`)
 export const verifyRecord         = (id) => apiFetch(`${BASE}/verify/${id}`)
+export const verifySession        = (session_id) => apiFetch(`${BASE}/verify-session/${session_id}`)
 export const sealBatch            = (batch_id) =>
   apiFetch(`${BASE}/batch`, {
     method: 'POST',
