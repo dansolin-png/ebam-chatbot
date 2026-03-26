@@ -1,13 +1,17 @@
 """
 S3 compliance storage — WORM writes with KMS encryption.
+Set COMPLIANCE_LOCK_ENABLED=false to skip Object Lock (test/dev mode).
 """
 import json
 import os
 import boto3
+from datetime import datetime, timezone, timedelta
 
 _REGION      = os.getenv("AWS_REGION", "us-east-1")
 _BUCKET      = "ebam-compliance-leads"
 _ENCRYPT_KEY = os.getenv("KMS_ENCRYPT_KEY_ID", "alias/ebam-s3-encryption")
+_LOCK_ENABLED = os.getenv("COMPLIANCE_LOCK_ENABLED", "true").lower() == "true"
+_RETENTION_DAYS = 2555  # 7 years
 
 _s3 = boto3.client("s3", region_name=_REGION)
 
@@ -31,7 +35,7 @@ def put_lead_object(session_id: str, date_str: str, payload: dict, suffix: str =
     key        = _lead_key(year, month, day, session_id, suffix)
     raw_bytes  = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
-    _s3.put_object(
+    kwargs = dict(
         Bucket=_BUCKET,
         Key=key,
         Body=raw_bytes,
@@ -44,6 +48,11 @@ def put_lead_object(session_id: str, date_str: str, payload: dict, suffix: str =
             "schema-version": "1.0",
         },
     )
+    if _LOCK_ENABLED:
+        retain_until = datetime.now(timezone.utc) + timedelta(days=_RETENTION_DAYS)
+        kwargs["ObjectLockMode"]            = "COMPLIANCE"
+        kwargs["ObjectLockRetainUntilDate"] = retain_until.isoformat()
+    _s3.put_object(**kwargs)
     return key, raw_bytes
 
 
@@ -53,7 +62,7 @@ def put_batch_object(date_str: str, batch: dict) -> str:
     key       = _batch_key(year, month, day)
     raw_bytes = json.dumps(batch, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
-    _s3.put_object(
+    kwargs = dict(
         Bucket=_BUCKET,
         Key=key,
         Body=raw_bytes,
@@ -66,6 +75,11 @@ def put_batch_object(date_str: str, batch: dict) -> str:
             "merkle-root":   batch.get("merkle_root", ""),
         },
     )
+    if _LOCK_ENABLED:
+        retain_until = datetime.now(timezone.utc) + timedelta(days=_RETENTION_DAYS)
+        kwargs["ObjectLockMode"]            = "COMPLIANCE"
+        kwargs["ObjectLockRetainUntilDate"] = retain_until.isoformat()
+    _s3.put_object(**kwargs)
     return key
 
 
