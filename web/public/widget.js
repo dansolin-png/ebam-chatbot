@@ -125,6 +125,15 @@
     'font-size:.88rem;font-weight:300;resize:none;min-height:44px;',
     'line-height:1.5;outline:none;}',
     '#ebam-input::placeholder{color:rgba(248,246,241,.35);}',
+    '#ebam-mic{width:44px;height:44px;flex-shrink:0;',
+    'background:' + NAVY_MID + ';border:1px solid rgba(201,168,76,.25);',
+    'border-radius:11px;cursor:pointer;display:flex;align-items:center;',
+    'justify-content:center;transition:all .2s;}',
+    '#ebam-mic:hover{border-color:' + GOLD + ';}',
+    '#ebam-mic.ebam-mic-on{background:rgba(239,68,68,.15);border-color:#ef4444;',
+    'animation:ebam-pulse 1.2s infinite;}',
+    '@keyframes ebam-pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4);}',
+    '50%{box-shadow:0 0 0 6px rgba(239,68,68,0);}}',
     '#ebam-send{width:44px;height:44px;flex-shrink:0;',
     'background:linear-gradient(135deg,' + GOLD + ',' + GOLD_LT + ');',
     'border:none;border-radius:11px;cursor:pointer;',
@@ -168,6 +177,12 @@
     '</div>',
     '<div id="ebam-input-row">',
     '  <input id="ebam-input" placeholder="Type your question here..." autocomplete="off"/>',
+    '  <button id="ebam-mic" title="Voice input">',
+    '    <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:none;stroke:rgba(201,168,76,.8);stroke-width:2;stroke-linecap:round;stroke-linejoin:round">',
+    '      <rect x="9" y="2" width="6" height="11" rx="3"/>',
+    '      <path d="M19 10a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
+    '    </svg>',
+    '  </button>',
     '  <button id="ebam-send">',
     '    <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:#0d1b2a"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
     '  </button>',
@@ -407,5 +422,67 @@
       $('ebam-send').click();
     }
   });
+
+  /* ── Voice input ─────────────────────────────────────────────────────── */
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var micBtn = $('ebam-mic');
+
+  if (!SpeechRecognition) {
+    // Browser doesn't support voice — hide the mic button
+    micBtn.style.display = 'none';
+  } else {
+    var recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    var listening = false;
+
+    micBtn.addEventListener('click', function() {
+      if (listening) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    });
+
+    recognition.addEventListener('start', function() {
+      listening = true;
+      micBtn.classList.add('ebam-mic-on');
+      micBtn.title = 'Stop recording';
+      $('ebam-input').placeholder = 'Listening…';
+    });
+
+    recognition.addEventListener('result', function(e) {
+      var transcript = Array.from(e.results)
+        .map(function(r) { return r[0].transcript; })
+        .join('');
+      $('ebam-input').value = transcript;
+      // Auto-send when speech is final
+      if (e.results[e.results.length - 1].isFinal) {
+        recognition.stop();
+        if (transcript.trim()) {
+          setTimeout(function() { $('ebam-send').click(); }, 200);
+        }
+      }
+    });
+
+    recognition.addEventListener('end', function() {
+      listening = false;
+      micBtn.classList.remove('ebam-mic-on');
+      micBtn.title = 'Voice input';
+      $('ebam-input').placeholder = 'Type your question here...';
+    });
+
+    recognition.addEventListener('error', function(e) {
+      listening = false;
+      micBtn.classList.remove('ebam-mic-on');
+      micBtn.title = 'Voice input';
+      $('ebam-input').placeholder = 'Type your question here...';
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        $('ebam-input').placeholder = 'Voice unavailable — type instead';
+        setTimeout(function() { $('ebam-input').placeholder = 'Type your question here...'; }, 3000);
+      }
+    });
+  }
 
 })();
