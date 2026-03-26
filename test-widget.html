@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EBAM Widget — Local Origin Test</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 60px auto; padding: 0 24px; color: #333; }
+    h1   { font-size: 1.4rem; margin-bottom: 8px; }
+    .note { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 14px 18px; margin: 20px 0; font-size: 0.9rem; }
+    .note strong { color: #856404; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>EBAM Chat Widget — Origin Check Test</h1>
+
+  <div class="note">
+    <strong>Test purpose:</strong> This page is served from <code>file://</code> or <code>localhost</code>,
+    which is <em>not</em> in the allowed origins list. The chat widget should be blocked
+    by the server's origin check when configured.<br><br>
+    To test: configure an allowed origins list in the EBAM admin panel that does
+    <strong>not</strong> include <code>file://</code> or <code>http://localhost</code>.
+    Chat messages sent from this page should receive a <code>403 Forbidden</code>.
+  </div>
+
+  <p>Scroll to the bottom-right corner — the chat button should appear (widget loads),
+     but sending a message should fail with an origin error once origins are configured.</p>
+
+  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque euismod
+     nisi vel magna vestibulum, at dictum arcu scelerisque.</p>
+
+  <script src="https://ebam.buzzybrains.net/widget.js"></script>
+</body>
+</html>
