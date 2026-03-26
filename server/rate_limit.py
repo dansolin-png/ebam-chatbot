@@ -47,18 +47,18 @@ def check_rate_limit(ip: str) -> tuple[bool, int]:
         return count <= RATE_LIMIT, count
     except Exception as e:
         log.error(f"Rate limit check failed for {ip}: {e}")
-        return True, 0   # fail open — don't block on DB error
+        return False, -1   # fail closed — block on DB error to prevent bypass
 
 
 def is_origin_allowed(origin: str | None, allowed_origins: list[str]) -> bool:
     """
     Check if the request Origin is in the allowed list.
-    - If allowed_origins is empty/None → allow all (open mode).
-    - "*" in the list → allow all.
+    - If allowed_origins is empty/None → block (fail closed).
+    - "*" in the list → allow all (explicit opt-in wildcard).
     - Otherwise exact match (scheme + host + optional port).
     """
     if not allowed_origins:
-        return True
+        return False  # fail closed — misconfigured origins block requests
     if "*" in allowed_origins:
         return True
     if not origin:

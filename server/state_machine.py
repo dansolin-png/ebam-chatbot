@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
+import secrets_client as sc
+
 GENERAL_SYSTEM_PROMPT = (
     "You are a professional assistant for Evidence Based Advisor Marketing. "
     "Be empathetic, concise, and always guide the conversation positively. "
@@ -20,7 +22,7 @@ DEFAULT_OPTION_LLM_PROMPT = (
 
 load_dotenv()
 
-client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = anthropic.AsyncAnthropic(api_key=sc.get("ANTHROPIC_API_KEY"))
 
 DEFAULT_FLOW_PATH = Path(__file__).parent / "flows" / "default_flow.json"
 AUDIENCE_FLOW_PATHS = {

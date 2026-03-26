@@ -43,6 +43,23 @@ def _load() -> dict:
 
 _secrets: dict = _load()
 
+# ---------------------------------------------------------------------------
+# Fix 1: fail hard in Lambda if critical secrets didn't load
+# ---------------------------------------------------------------------------
+
+_WEAK_DEFAULTS = {
+    "SECRET_KEY":    "ebam-secret-key-change-in-production",
+    "ADMIN_PASSWORD": "admin",
+}
+
+if _is_lambda:
+    for _k, _weak in _WEAK_DEFAULTS.items():
+        if (_secrets.get(_k) or os.getenv(_k, _weak)) == _weak:
+            raise RuntimeError(
+                f"[STARTUP FAIL] {_k} is the insecure default value. "
+                f"Secrets Manager did not load correctly — refusing to start."
+            )
+
 
 # ---------------------------------------------------------------------------
 # Public accessors

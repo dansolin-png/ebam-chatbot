@@ -3,7 +3,7 @@ import logging
 import os
 import uuid
 import anthropic
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from typing import Optional
 from prompts import CHAT_CONFIG
@@ -11,12 +11,14 @@ from state_machine import process_message, get_initial_message, load_default_flo
 import dynamo as db
 import compliance_store
 import rate_limit as rl
+import secrets_client as sc
+from routes.auth import require_auth as require_admin
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-_anthropic = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+_anthropic = anthropic.AsyncAnthropic(api_key=sc.get("ANTHROPIC_API_KEY"))
 
 
 class StartRequest(BaseModel):
@@ -104,7 +106,14 @@ async def send_message(req: MessageRequest, request: Request):
         raise HTTPException(status_code=403, detail="Origin not allowed")
 
     # Rate limit: 20 messages per minute per IP
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    # Use request.client.host (set by Mangum from API GW's sourceIp — trustworthy).
+    # Fall back to the LAST value in X-Forwarded-For (appended by API GW, not client-supplied).
+    # Never use the FIRST value — clients can inject arbitrary leading IPs to spoof the header.
+    client_ip = (
+        (request.client.host if request.client else None)
+        or request.headers.get("x-forwarded-for", "").split(",")[-1].strip()
+        or "unknown"
+    )
     ok, count = rl.check_rate_limit(client_ip)
     if not ok:
         log.warning(f"Rate limit exceeded for IP {client_ip}: {count} messages in window")
@@ -247,6 +256,6 @@ async def _store_compliance(session: dict, session_id: str, record_type: str = "
 
 
 @router.get("/history/{session_id}")
-def get_history(session_id: str):
+def get_history(session_id: str, _=Depends(require_admin)):
     messages = db.get_messages(session_id)
     return [{"role": m["role"], "content": m["content"], "created_at": m["created_at"]} for m in messages]
