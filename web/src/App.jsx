@@ -43,45 +43,74 @@ export default function App() {
     return <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Access denied.</div>
   }
 
-  const navItems = [
-    { path: '/chat',       label: 'Chat Demo' },
-    { path: '/admin',      label: 'Flow Editor' },
-    { path: '/leads',      label: 'Leads' },
+  const primaryNav = [
+    { path: '/chat',  label: 'Chat Demo' },
+    { path: '/admin', label: 'Flow Editor' },
+    { path: '/leads', label: 'Leads' },
+  ]
+  const adminNav = [
     { path: '/compliance', label: 'Compliance' },
     { path: '/history',    label: 'History' },
     ...(role === 'admin' ? [{ path: '/users', label: 'Users' }] : []),
   ]
 
+  const navLinkStyle = (path) => ({
+    color: location.pathname === path ? '#fff' : 'rgba(255,255,255,0.6)',
+    textDecoration: 'none',
+    padding: '5px 12px',
+    borderRadius: '6px',
+    fontSize: '13.5px',
+    fontWeight: location.pathname === path ? 600 : 400,
+    backgroundColor: 'transparent',
+    borderBottom: location.pathname === path ? '2px solid #60a5fa' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    lineHeight: '1',
+  })
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       <nav style={{
         backgroundColor: '#1e3a5f',
-        padding: '0 24px',
+        padding: '0 32px',
         display: 'flex',
         alignItems: 'center',
-        gap: '32px',
-        height: '56px',
+        height: '52px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
       }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: '18px', letterSpacing: '-0.3px' }}>EBAM</span>
-        <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
-          {navItems.map(({ path, label }) => (
-            <Link key={path} to={path} style={{
-              color: location.pathname === path ? '#60a5fa' : 'rgba(255,255,255,0.7)',
-              textDecoration: 'none',
-              padding: '6px 14px',
-              borderRadius: '6px',
-              fontSize: '14px',
-              fontWeight: 500,
-              backgroundColor: location.pathname === path ? 'rgba(96,165,250,0.1)' : 'transparent',
-              transition: 'all 0.15s',
-            }}>
-              {label}
-            </Link>
+        {/* Logo */}
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: '17px', letterSpacing: '-0.3px', marginRight: '40px', flexShrink: 0 }}>
+          EBAM
+        </span>
+
+        {/* Primary nav — left */}
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          {primaryNav.map(({ path, label }) => (
+            <Link key={path} to={path} style={navLinkStyle(path)}
+              onMouseEnter={e => { if (location.pathname !== path) e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { if (location.pathname !== path) e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+            >{label}</Link>
           ))}
         </div>
+
+        {/* Divider */}
+        <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 20px' }} />
+
+        {/* Admin nav — secondary */}
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flex: 1 }}>
+          {adminNav.map(({ path, label }) => (
+            <Link key={path} to={path} style={navLinkStyle(path)}
+              onMouseEnter={e => { if (location.pathname !== path) e.currentTarget.style.color = '#fff' }}
+              onMouseLeave={e => { if (location.pathname !== path) e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+            >{label}</Link>
+          ))}
+        </div>
+
+        {/* Sign out — right */}
         {isAdminArea && (
-          <button onClick={logout} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, padding: '5px 12px', color: 'rgba(255,255,255,0.7)', fontSize: 13, cursor: 'pointer' }}>
+          <button onClick={logout} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 6, padding: '5px 12px', color: 'rgba(255,255,255,0.6)', fontSize: 12.5, cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)' }}
+          >
             Sign out
           </button>
         )}
