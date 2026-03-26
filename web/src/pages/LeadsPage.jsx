@@ -419,7 +419,8 @@ function LeadDetail({ lead, onClose, onDelete, tz }) {
 
   useEffect(() => {
     setLoadingMsgs(true)
-    fetch(API_BASE + `/api/chat/history/${lead.session_id}`)
+    const token = localStorage.getItem('ebam_token') || ''
+    fetch(API_BASE + `/api/chat/history/${lead.session_id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setMessages).catch(() => setMessages([]))
       .finally(() => setLoadingMsgs(false))
   }, [lead.session_id])
