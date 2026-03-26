@@ -10,7 +10,7 @@ import asyncio
 import base64
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -56,25 +56,36 @@ def seal_batch(req: BatchRequest = BatchRequest(), _=Depends(require_admin)):
     tree        = comp.build_merkle_tree(leaf_hashes)
     merkle_root = comp.get_merkle_root(tree)
 
-    # Sign root with KMS
-    signature = kms.sign_merkle_root(merkle_root)
+    # Cross-day chain: include the previous day's Merkle root so each batch is
+    # cryptographically linked to the one before it.  A missing or dropped day
+    # breaks the chain and is detectable during verification.
+    prev_date           = (datetime.strptime(batch_id, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    prev_batch          = dbc.get_batch(prev_date)
+    previous_batch_root = prev_batch["merkle_root"] if prev_batch else "0" * 64
+
+    # Sign previous_batch_root + merkle_root together so the cross-day link is
+    # covered by the KMS signature.  Backward-compatible: old batches that have
+    # no previous_batch_root field are verified with the original payload.
+    sign_payload = previous_batch_root + merkle_root
+    signature    = kms.sign_merkle_root(sign_payload)
 
     # Build batch manifest
     year, month, day = batch_id.split("-")
     anchor_key = f"batches/{year}/{month}/{day}/batch.json"
 
     batch = {
-        "batch_id":       batch_id,
-        "merkle_root":    merkle_root,
-        "record_count":   len(records),
-        "start_record_id": records[0]["record_id"],
-        "end_record_id":   records[-1]["record_id"],
-        "start_hash":      records[0]["record_hash"],
-        "end_hash":        records[-1]["record_hash"],
-        "created_at":     datetime.now(timezone.utc).isoformat(),
-        "signature":      signature,
-        "anchor_s3_key":  anchor_key,
-        "status":         "sealed",
+        "batch_id":            batch_id,
+        "merkle_root":         merkle_root,
+        "previous_batch_root": previous_batch_root,
+        "record_count":        len(records),
+        "start_record_id":     records[0]["record_id"],
+        "end_record_id":       records[-1]["record_id"],
+        "start_hash":          records[0]["record_hash"],
+        "end_hash":            records[-1]["record_hash"],
+        "created_at":          datetime.now(timezone.utc).isoformat(),
+        "signature":           signature,
+        "anchor_s3_key":       anchor_key,
+        "status":              "sealed",
     }
 
     # Write to S3 WORM
@@ -166,9 +177,14 @@ def verify_record(record_id: str, _=Depends(require_admin)):
             )
             result["checks"]["merkle_proof"] = merkle_ok
 
-            # 4. Verify KMS signature on Merkle root
-            sig_ok = kms.verify_merkle_signature(batch["merkle_root"], batch["signature"])
-            result["checks"]["kms_signature"] = sig_ok
+            # 4. Verify KMS signature.
+            # New batches sign previous_batch_root + merkle_root together.
+            # Old batches (no previous_batch_root field) signed merkle_root only
+            # — represented here as "" + merkle_root = merkle_root (backward-compat).
+            sign_payload = batch.get("previous_batch_root", "") + batch["merkle_root"]
+            result["checks"]["kms_signature"] = kms.verify_merkle_signature(
+                sign_payload, batch["signature"]
+            )
         else:
             result["detail"] = "Batch not yet sealed — Merkle proof not available"
 
@@ -222,8 +238,9 @@ def verify_session(session_id: str, _=Depends(require_admin)):
                 comp_record["merkle_proof"],
                 batch["merkle_root"],
             )
+            sign_payload = batch.get("previous_batch_root", "") + batch["merkle_root"]
             result["checks"]["kms_signature"] = kms.verify_merkle_signature(
-                batch["merkle_root"], batch["signature"]
+                sign_payload, batch["signature"]
             )
         else:
             result["detail"] = "Batch not yet sealed — Merkle proof not available"

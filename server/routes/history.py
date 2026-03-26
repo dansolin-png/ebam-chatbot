@@ -304,8 +304,9 @@ def verify_history_lead(history_id: str, _=Depends(require_admin)):
                 comp_record["merkle_proof"],
                 batch["merkle_root"],
             )
+            sign_payload = batch.get("previous_batch_root", "") + batch["merkle_root"]
             result["checks"]["kms_signature"] = kms.verify_merkle_signature(
-                batch["merkle_root"], batch["signature"]
+                sign_payload, batch["signature"]
             )
         else:
             result["detail"] = "Batch not yet sealed — Merkle proof not available"

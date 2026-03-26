@@ -4,6 +4,16 @@ Supports three record types:
   - partial  : name+email collected, conversation still in progress
   - complete : conversation reached is_end=True
   - timeout  : session went idle with name+email but never completed
+
+Atomic chain write
+------------------
+Instead of a two-step read-then-write, the hash chain tip is advanced inside a
+DynamoDB Transaction together with the new record insert (see
+dynamo_compliance.write_compliance_record_atomic).  If two writes land at the
+exact same moment and both read the same previous_hash, one transaction wins
+and the other raises ChainTipConflict.  We retry up to _MAX_CHAIN_RETRIES
+times with a fresh tip each attempt, giving us serialised ordering without any
+additional infrastructure.
 """
 import logging
 from datetime import datetime, timezone
@@ -14,6 +24,8 @@ import dynamo as db
 import s3_compliance as s3c
 
 log = logging.getLogger(__name__)
+
+_MAX_CHAIN_RETRIES = 5
 
 
 def store_lead(session: dict, messages: list, record_type: str = "partial"):
@@ -45,32 +57,48 @@ def store_lead(session: dict, messages: list, record_type: str = "partial"):
     timestamp = now.isoformat()
     record_id = comp.build_record_id(date_str)
 
-    # Build S3 payload
-    payload = comp.build_s3_object(session, messages, record_type=record_type)
+    # Build S3 payload and write to WORM first.
+    # S3 write is outside the retry loop — the s3_key and data_hash are stable
+    # across retries; only previous_hash and record_hash change.
+    payload             = comp.build_s3_object(session, messages, record_type=record_type)
+    s3_key, raw_bytes   = s3c.put_lead_object(session_id, date_str, payload, suffix=record_type)
+    data_hash           = comp.compute_data_hash(raw_bytes)
 
-    # Write to S3 WORM (key includes record_type to allow partial + complete for same session)
-    s3_key, raw_bytes = s3c.put_lead_object(session_id, date_str, payload, suffix=record_type)
+    # Atomic chain write with optimistic-locking retry.
+    # On a ChainTipConflict we re-read the tip (another write landed first)
+    # and recompute record_hash before trying again.
+    for attempt in range(_MAX_CHAIN_RETRIES):
+        previous_hash = dbc.get_chain_tip(date_str)
+        record_hash   = comp.compute_record_hash(previous_hash, data_hash, timestamp, record_id)
 
-    # Compute hashes
-    data_hash     = comp.compute_data_hash(raw_bytes)
-    previous_hash = dbc.get_last_record_hash(date_str)
-    record_hash   = comp.compute_record_hash(previous_hash, data_hash, timestamp, record_id)
+        record = {
+            "record_id":     record_id,
+            "batch_id":      date_str,
+            "session_id":    session_id,
+            "record_type":   record_type,
+            "s3_key":        s3_key,
+            "data_hash":     data_hash,
+            "previous_hash": previous_hash,
+            "record_hash":   record_hash,
+            "timestamp":     timestamp,
+            "merkle_proof":  [],
+            "merkle_index":  -1,
+        }
 
-    # Save to DynamoDB compliance table
-    record = {
-        "record_id":     record_id,
-        "batch_id":      date_str,
-        "session_id":    session_id,
-        "record_type":   record_type,
-        "s3_key":        s3_key,
-        "data_hash":     data_hash,
-        "previous_hash": previous_hash,
-        "record_hash":   record_hash,
-        "timestamp":     timestamp,
-        "merkle_proof":  [],
-        "merkle_index":  -1,
-    }
-    dbc.save_compliance_record(record)
+        try:
+            dbc.write_compliance_record_atomic(record, previous_hash)
+            break  # transaction succeeded
+        except dbc.ChainTipConflict:
+            if attempt == _MAX_CHAIN_RETRIES - 1:
+                log.error(
+                    f"Chain tip conflict unresolved after {_MAX_CHAIN_RETRIES} retries "
+                    f"for session {session_id}"
+                )
+                raise
+            log.warning(
+                f"Chain tip conflict for {session_id} — "
+                f"retry {attempt + 1}/{_MAX_CHAIN_RETRIES}"
+            )
 
     # Update session compliance_status
     db.update_session(session_id, compliance_status=record_type, last_activity_at=timestamp)
