@@ -244,6 +244,47 @@
     return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  /* ── Sounds ─────────────────────────────────────────────────────────── */
+  var audioCtx = null;
+
+  function getAudioCtx() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    }
+    if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+    return audioCtx;
+  }
+
+  function playTone(freq, startDelay, duration, volume) {
+    var ctx = getAudioCtx();
+    if (!ctx) return;
+    try {
+      var osc  = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      var t = ctx.currentTime + (startDelay || 0);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(volume || 0.15, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+      osc.start(t);
+      osc.stop(t + duration + 0.05);
+    } catch (e) {}
+  }
+
+  // Soft ascending two-tone chime — industry-standard chat widget open sound (Intercom-style)
+  function playOpenSound() {
+    playTone(523.25, 0,    0.25, 0.14);  // C5
+    playTone(659.25, 0.18, 0.28, 0.14); // E5
+  }
+
+  // Single soft ding for incoming bot reply (A5)
+  function playReplySound() {
+    playTone(880, 0, 0.35, 0.10);
+  }
+
   function showTyping() {
     var row = document.createElement('div');
     row.className = 'ebam-bot-row';
@@ -293,6 +334,7 @@
     removeTyping();
     busy = false;
     addBotBubble(renderText(data.message));
+    playReplySound();
     if (data.is_end) { setInputVisible(false); return; }
     if (data.options && data.options.length) showOptions(data.options);
     setInputVisible(true);
@@ -483,6 +525,18 @@
         setTimeout(function() { $('ebam-input').placeholder = 'Type your question here...'; }, 3000);
       }
     });
+  }
+
+  /* ── Auto-open ───────────────────────────────────────────────────────── */
+  if (cfg.autoOpen) {
+    setTimeout(function () {
+      if (!win.classList.contains('open')) {
+        win.classList.add('open');
+        btn.innerHTML = ICON_CLOSE;
+        if (!sessionId) initWidget();
+        playOpenSound();
+      }
+    }, 800);
   }
 
 })();

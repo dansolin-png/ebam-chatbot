@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 export default function ChatPage() {
   useEffect(() => {
     if (document.getElementById('ebam-btn')) return // already loaded
-    window.EBAMChat = { accentColor: '#1e3a5f' }
+    window.EBAMChat = { accentColor: '#1e3a5f', autoOpen: true }
     const script = document.createElement('script')
     script.src = '/widget.js'
     script.async = true
@@ -49,7 +49,7 @@ export default function ChatPage() {
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>Chat widget is active</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>Click the button in the bottom-right corner to open it.</div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>The widget opens automatically when you land on this page.</div>
           </div>
           <div style={{ marginLeft: 'auto' }}>
             <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', whiteSpace: 'nowrap' }}>
