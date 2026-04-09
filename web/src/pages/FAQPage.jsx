@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 const sections = [
   {
@@ -173,12 +173,26 @@ const sections = [
   },
 ]
 
-function AccordionItem({ q, a }) {
-  const [open, setOpen] = useState(false)
+function highlight(text, query) {
+  if (!query) return text
+  const idx = text.toLowerCase().indexOf(query.toLowerCase())
+  if (idx === -1) return text
   return (
-    <div style={{
-      borderBottom: '1px solid #e2e8f0',
-    }}>
+    <>
+      {text.slice(0, idx)}
+      <mark style={{ backgroundColor: '#fef08a', color: 'inherit', borderRadius: 2, padding: '0 1px' }}>
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
+function AccordionItem({ q, a, query, forceOpen }) {
+  const [open, setOpen] = useState(false)
+  const isOpen = forceOpen || open
+  return (
+    <div style={{ borderBottom: '1px solid #e2e8f0' }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -198,24 +212,19 @@ function AccordionItem({ q, a }) {
           lineHeight: 1.4,
         }}
       >
-        <span>{q}</span>
+        <span>{highlight(q, query)}</span>
         <span style={{
           flexShrink: 0,
           fontSize: 18,
           color: '#64748b',
-          transform: open ? 'rotate(45deg)' : 'rotate(0deg)',
+          transform: isOpen ? 'rotate(45deg)' : 'rotate(0deg)',
           transition: 'transform 0.2s',
           lineHeight: 1,
         }}>+</span>
       </button>
-      {open && (
-        <div style={{
-          paddingBottom: 14,
-          color: '#475569',
-          fontSize: 13.5,
-          lineHeight: 1.65,
-        }}>
-          {a}
+      {isOpen && (
+        <div style={{ paddingBottom: 14, color: '#475569', fontSize: 13.5, lineHeight: 1.65 }}>
+          {highlight(a, query)}
         </div>
       )}
     </div>
@@ -224,16 +233,90 @@ function AccordionItem({ q, a }) {
 
 export default function FAQPage() {
   const [active, setActive] = useState(null)
+  const [query, setQuery] = useState('')
+
+  const trimmed = query.trim()
+
+  const filtered = useMemo(() => {
+    if (!trimmed) return null
+    const q = trimmed.toLowerCase()
+    return sections
+      .map(section => ({
+        ...section,
+        items: section.items.filter(
+          item =>
+            item.q.toLowerCase().includes(q) ||
+            item.a.toLowerCase().includes(q) ||
+            section.title.toLowerCase().includes(q)
+        ),
+      }))
+      .filter(section => section.items.length > 0)
+  }, [trimmed])
+
+  const isSearching = trimmed.length > 0
+  const displaySections = isSearching ? filtered : sections
+  const totalResults = isSearching ? filtered.reduce((n, s) => n + s.items.length, 0) : null
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '40px 24px 80px' }}>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: '#1e3a5f', marginBottom: 6 }}>Help &amp; FAQ</h1>
-      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 40 }}>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 24 }}>
         Overview of each page in the EBAM admin dashboard — what it does, what you can configure, and how to use it.
       </p>
 
+      {/* Search bar */}
+      <div style={{ position: 'relative', marginBottom: 32 }}>
+        <span style={{
+          position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
+          color: '#94a3b8', fontSize: 16, pointerEvents: 'none', lineHeight: 1,
+        }}>
+          🔍
+        </span>
+        <input
+          type="text"
+          placeholder="Search questions..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: '11px 40px 11px 40px',
+            fontSize: 14,
+            border: '1px solid #cbd5e1',
+            borderRadius: 8,
+            outline: 'none',
+            color: '#1e293b',
+            backgroundColor: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            transition: 'border-color 0.15s',
+          }}
+          onFocus={e => { e.target.style.borderColor = '#3b82f6' }}
+          onBlur={e => { e.target.style.borderColor = '#cbd5e1' }}
+        />
+        {query && (
+          <button
+            onClick={() => setQuery('')}
+            style={{
+              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#94a3b8', fontSize: 16, lineHeight: 1, padding: 2,
+            }}
+          >✕</button>
+        )}
+      </div>
+
+      {/* Result count */}
+      {isSearching && (
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+          {totalResults === 0
+            ? 'No results found.'
+            : `${totalResults} result${totalResults !== 1 ? 's' : ''} for "${trimmed}"`}
+        </div>
+      )}
+
+      {/* Sections */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {sections.map((section, i) => (
+        {displaySections.map((section, i) => (
           <div
             key={section.title}
             style={{
@@ -246,14 +329,14 @@ export default function FAQPage() {
           >
             {/* Section header */}
             <button
-              onClick={() => setActive(active === i ? null : i)}
+              onClick={() => !isSearching && setActive(active === i ? null : i)}
               style={{
                 width: '100%',
                 textAlign: 'left',
-                background: active === i ? '#f0f6ff' : '#fff',
+                background: (isSearching || active === i) ? '#f0f6ff' : '#fff',
                 border: 'none',
                 padding: '18px 24px',
-                cursor: 'pointer',
+                cursor: isSearching ? 'default' : 'pointer',
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 14,
@@ -271,16 +354,18 @@ export default function FAQPage() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                 }}>
-                  <span>{section.title}</span>
-                  <span style={{
-                    fontSize: 18,
-                    color: '#94a3b8',
-                    transform: active === i ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s',
-                    lineHeight: 1,
-                    marginLeft: 12,
-                    flexShrink: 0,
-                  }}>▾</span>
+                  <span>{highlight(section.title, trimmed)}</span>
+                  {!isSearching && (
+                    <span style={{
+                      fontSize: 18,
+                      color: '#94a3b8',
+                      transform: active === i ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s',
+                      lineHeight: 1,
+                      marginLeft: 12,
+                      flexShrink: 0,
+                    }}>▾</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
                   {section.description}
@@ -289,10 +374,16 @@ export default function FAQPage() {
             </button>
 
             {/* FAQ items */}
-            {active === i && (
+            {(isSearching || active === i) && (
               <div style={{ padding: '0 24px 8px', borderTop: '1px solid #e2e8f0' }}>
                 {section.items.map((item) => (
-                  <AccordionItem key={item.q} q={item.q} a={item.a} />
+                  <AccordionItem
+                    key={item.q}
+                    q={item.q}
+                    a={item.a}
+                    query={trimmed}
+                    forceOpen={isSearching}
+                  />
                 ))}
               </div>
             )}
