@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow } from '../api/admin.js'
 import FlowEditor from '../components/FlowEditor.jsx'
 import RichTextEditor from '../components/RichTextEditor.jsx'
@@ -10,21 +10,40 @@ const AUDIENCES = [
   { key: 'cpa',     label: '🧾 CPA',               hint: 'Conversational flow for CPAs.' },
 ]
 
+// Module-level cache — survives navigation, cleared on save/reset
+const cache = { config: null, stats: null, flows: { advisor: null, cpa: null } }
+
 export default function AdminPage() {
-  const [config, setConfig]   = useState(null)
-  const [flows, setFlows]     = useState({ advisor: null, cpa: null })
-  const [stats, setStats]     = useState(null)
+  const [config, setConfig]   = useState(cache.config)
+  const [flows, setFlows]     = useState(cache.flows)
+  const [stats, setStats]     = useState(cache.stats)
   const [saveStatus, setSaveStatus] = useState('')
-  const [loading, setLoading] = useState(true)
   const [openSections, setOpenSections] = useState({})
+  const fetchedRef = useRef(false)
 
   useEffect(() => {
-    Promise.all([getChatbotConfig(), getStats(), getFlow('advisor'), getFlow('cpa')])
-      .then(([cfg, st, advisorFlow, cpaFlow]) => {
-        setConfig(cfg)
-        setStats(st)
-        setFlows({ advisor: advisorFlow, cpa: cpaFlow })
-      }).finally(() => setLoading(false))
+    if (fetchedRef.current) return
+    fetchedRef.current = true
+
+    // Load config + stats immediately; flows lazily in background
+    if (!cache.config) {
+      getChatbotConfig().then(cfg => { cache.config = cfg; setConfig(cfg) })
+    }
+    if (!cache.stats) {
+      getStats().then(st => { cache.stats = st; setStats(st) })
+    }
+    if (!cache.flows.advisor) {
+      getFlow('advisor').then(f => {
+        cache.flows = { ...cache.flows, advisor: f }
+        setFlows(prev => ({ ...prev, advisor: f }))
+      })
+    }
+    if (!cache.flows.cpa) {
+      getFlow('cpa').then(f => {
+        cache.flows = { ...cache.flows, cpa: f }
+        setFlows(prev => ({ ...prev, cpa: f }))
+      })
+    }
   }, [])
 
   async function handleSave() {
@@ -34,6 +53,8 @@ export default function AdminPage() {
         saveFlow('advisor', flows.advisor),
         saveFlow('cpa', flows.cpa),
       ])
+      cache.config = config
+      cache.flows = flows
       setSaveStatus('Saved!')
     } catch {
       setSaveStatus('Error saving')
@@ -45,6 +66,8 @@ export default function AdminPage() {
     if (!confirm('Reset all config and flows to factory defaults?')) return
     await Promise.all([resetChatbotConfig(), resetFlow('advisor'), resetFlow('cpa')])
     const [cfg, advisorFlow, cpaFlow] = await Promise.all([getChatbotConfig(), getFlow('advisor'), getFlow('cpa')])
+    cache.config = cfg
+    cache.flows = { advisor: advisorFlow, cpa: cpaFlow }
     setConfig(cfg)
     setFlows({ advisor: advisorFlow, cpa: cpaFlow })
     setSaveStatus('Reset to defaults.')
@@ -54,8 +77,6 @@ export default function AdminPage() {
   function toggleSection(key) {
     setOpenSections(s => ({ ...s, [key]: !s[key] }))
   }
-
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading...</div>
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 24px 32px' }}>
