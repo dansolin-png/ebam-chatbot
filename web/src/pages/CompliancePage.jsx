@@ -41,6 +41,41 @@ export default function CompliancePage() {
   const verifyBorder = !verifyResult ? 'transparent'
     : verifyResult.valid ? '#16a34a' : (batchPending && coreValid) ? '#d97706' : '#ef4444'
 
+  function exportRecordsCSV() {
+    const headers = ['Record ID', 'Batch Date', 'Session ID', 'Type', 'Timestamp', 'S3 Key', 'Merkle Index', 'Status']
+    const rows = records.map(r => [
+      r.record_id,
+      r.batch_id,
+      r.session_id || '',
+      r.record_type || '',
+      r.timestamp ? new Date(r.timestamp).toISOString() : '',
+      r.s3_key || '',
+      r.merkle_index >= 0 ? r.merkle_index : 'pending',
+      r.merkle_index >= 0 ? 'sealed' : 'pending',
+    ])
+    downloadCSV(headers, rows, `ebam-compliance-records-${new Date().toISOString().slice(0,10)}.csv`)
+  }
+
+  function exportBatchesCSV() {
+    const headers = ['Batch Date', 'Record Count', 'Merkle Root', 'Sealed At', 'Status']
+    const rows = batches.map(b => [
+      b.batch_id,
+      b.record_count,
+      b.merkle_root || '',
+      b.created_at ? new Date(b.created_at).toISOString() : '',
+      b.status || 'sealed',
+    ])
+    downloadCSV(headers, rows, `ebam-compliance-batches-${new Date().toISOString().slice(0,10)}.csv`)
+  }
+
+  function downloadCSV(headers, rows, filename) {
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function handleSealBatch() {
     const today = new Date().toISOString().slice(0, 10)
     if (!confirm(`Seal compliance batch for ${today}?`)) return
@@ -116,7 +151,12 @@ export default function CompliancePage() {
       {/* Records tab */}
       {tab === 'records' && (
         <div style={st.card}>
-          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>{records.length} compliance records</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: '#64748b' }}>{records.length} compliance records</div>
+            {records.length > 0 && (
+              <button onClick={exportRecordsCSV} style={st.exportBtn}>Export CSV</button>
+            )}
+          </div>
           {records.length === 0
             ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>No compliance records yet. Records are created when leads are captured.</div>
             : (
@@ -166,7 +206,12 @@ export default function CompliancePage() {
       {/* Batches tab */}
       {tab === 'batches' && (
         <div style={st.card}>
-          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>{batches.length} sealed batches</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: '#64748b' }}>{batches.length} sealed batches</div>
+            {batches.length > 0 && (
+              <button onClick={exportBatchesCSV} style={st.exportBtn}>Export CSV</button>
+            )}
+          </div>
           {batches.length === 0
             ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>No batches sealed yet.</div>
             : (
@@ -210,4 +255,5 @@ const st = {
   card:      { backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '18px 20px', overflowX: 'auto' },
   btn:       { backgroundColor: NAVY, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
   verifyBtn: { backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' },
+  exportBtn: { backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' },
 }

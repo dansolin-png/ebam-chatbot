@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow } from '../api/admin.js'
+// ChangeHistory uses useState internally — React hooks work across the same module
+import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow, getConfigHistory, getConfigHistoryEntry, getFlowHistory, getFlowHistoryEntry } from '../api/admin.js'
 import FlowEditor from '../components/FlowEditor.jsx'
 import RichTextEditor from '../components/RichTextEditor.jsx'
 
@@ -147,10 +148,30 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Disclaimer */}
+      {config && (
+        <div style={st.card}>
+          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Disclaimer</div>
+          <div style={{ ...st.sectionHint, marginBottom: 10 }}>
+            Shown as a small banner inside the chat widget on every session. Required for SEC/FINRA compliance.
+          </div>
+          <textarea
+            style={{ ...st.textarea, height: 80 }}
+            placeholder="e.g. This chat is for informational purposes only and does not constitute financial advice..."
+            value={config.disclaimer || ''}
+            onChange={e => setConfig(c => ({ ...c, disclaimer: e.target.value }))}
+          />
+        </div>
+      )}
+
+      {/* Change History */}
+      {config && <ChangeHistory getHistory={getConfigHistory} getEntry={getConfigHistoryEntry} label="Chatbot Config" onRestore={cfg => setConfig(cfg)} />}
+
       {/* Per-audience sections */}
       {config && AUDIENCES.map(({ key, label, hint }) => (
         <AudienceSection
           key={key}
+          audienceKey={key}
           label={label}
           hint={hint}
           audience={config[key] || {}}
@@ -167,7 +188,7 @@ export default function AdminPage() {
 }
 
 
-function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudienceChange, onFlowChange }) {
+function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudienceChange, onFlowChange, audienceKey }) {
   return (
     <div style={{ ...st.card, marginTop: 16 }}>
       <div
@@ -203,6 +224,110 @@ function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudi
             : <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Loading flow...</div>
           }
 
+          {/* Flow change history */}
+          <ChangeHistory
+            getHistory={() => getFlowHistory(audienceKey)}
+            getEntry={(ts) => getFlowHistoryEntry(audienceKey, ts)}
+            label={`${label} Flow`}
+            onRestore={onFlowChange}
+          />
+
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Change History panel — shared by chatbot config and per-audience flows
+// ---------------------------------------------------------------------------
+function ChangeHistory({ getHistory, getEntry, label, onRestore }) {
+  const [open, setOpen]       = useState(false)
+  const [entries, setEntries] = useState(null)   // null = not loaded
+  const [loading, setLoading] = useState(false)
+  const [preview, setPreview] = useState(null)   // { changed_at, snapshot }
+  const [restoring, setRestoring] = useState(false)
+
+  async function load() {
+    if (entries !== null) { setOpen(o => !o); return }
+    setOpen(true)
+    setLoading(true)
+    try {
+      const list = await getHistory()
+      setEntries(list)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handlePreview(changed_at) {
+    if (preview?.changed_at === changed_at) { setPreview(null); return }
+    const entry = await getEntry(changed_at)
+    setPreview({ changed_at, snapshot: entry.snapshot })
+  }
+
+  function handleRestore() {
+    if (!preview) return
+    if (!confirm(`Restore this version from ${new Date(preview.changed_at).toLocaleString()}?\n\nThis will overwrite the current config in the editor (you still need to Save All to persist it).`)) return
+    setRestoring(true)
+    onRestore(preview.snapshot)
+    setPreview(null)
+    setRestoring(false)
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+      <button
+        onClick={load}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#64748b', fontWeight: 600, padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+      >
+        <span style={{ fontSize: 14 }}>{open ? '▾' : '▸'}</span>
+        Change History — {label}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {loading && <div style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</div>}
+          {entries !== null && entries.length === 0 && (
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>No history yet. History is recorded each time you save.</div>
+          )}
+          {entries !== null && entries.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {entries.map(e => (
+                <div key={e.changed_at} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 6, backgroundColor: preview?.changed_at === e.changed_at ? '#eff6ff' : '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: 12, color: '#475569', flex: 1 }}>
+                    {new Date(e.changed_at).toLocaleString()} <span style={{ color: '#94a3b8' }}>by {e.changed_by}</span>
+                  </span>
+                  <button
+                    onClick={() => handlePreview(e.changed_at)}
+                    style={{ fontSize: 11, padding: '2px 10px', borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', color: '#475569', fontWeight: 600 }}
+                  >
+                    {preview?.changed_at === e.changed_at ? 'Hide' : 'Preview'}
+                  </button>
+                  {preview?.changed_at === e.changed_at && (
+                    <button
+                      onClick={handleRestore}
+                      disabled={restoring}
+                      style={{ fontSize: 11, padding: '2px 10px', borderRadius: 5, border: 'none', background: '#0d1b2a', cursor: 'pointer', color: '#fff', fontWeight: 600 }}
+                    >
+                      Restore
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {preview && (
+            <div style={{ marginTop: 10, padding: '10px 12px', backgroundColor: '#f1f5f9', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Snapshot preview — {new Date(preview.changed_at).toLocaleString()}
+              </div>
+              <pre style={{ fontSize: 10, color: '#475569', overflow: 'auto', maxHeight: 200, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {JSON.stringify(preview.snapshot, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

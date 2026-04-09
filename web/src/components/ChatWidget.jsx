@@ -47,6 +47,7 @@ export default function ChatWidget({ defaultOpen = false }) {
     }
   }
 
+
   async function handleSelectAudience(type) {
     setAudience(type)
     setIsTyping(true)
@@ -130,6 +131,14 @@ export default function ChatWidget({ defaultOpen = false }) {
             </div>
             <div style={s.statusDot}>Online</div>
           </div>
+
+          {/* Disclaimer banner */}
+          {config?.disclaimer && (
+            <div style={s.disclaimer}>
+              <span style={{ marginRight: 6, fontSize: 11 }}>ℹ</span>
+              {config.disclaimer}
+            </div>
+          )}
 
           {/* Messages */}
           <div style={s.chatBody}>
@@ -558,6 +567,18 @@ const s = {
     flexShrink: 0,
     boxShadow: '0 4px 12px rgba(201,168,76,0.25)',
     transition: 'all 0.2s',
+  },
+  disclaimer: {
+    background: 'rgba(13,27,42,0.85)',
+    borderLeft: '1px solid rgba(201,168,76,0.2)',
+    borderRight: '1px solid rgba(201,168,76,0.2)',
+    borderBottom: '1px solid rgba(201,168,76,0.12)',
+    padding: '8px 18px',
+    fontSize: '0.68rem',
+    color: 'rgba(138,155,176,0.7)',
+    lineHeight: 1.5,
+    display: 'flex',
+    alignItems: 'flex-start',
   },
   branding: {
     padding: '8px 18px',

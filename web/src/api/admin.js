@@ -37,13 +37,17 @@ async function put(path, body) {
   return res.json()
 }
 
-export const getChatbotConfig   = ()               => get('/chatbot-config')
-export const saveChatbotConfig  = (config)         => put('/chatbot-config', { config })
-export const resetChatbotConfig = ()               => post('/chatbot-config/reset', {})
-export const getStats           = ()               => get('/stats')
-export const getFlow            = (audience)       => get(`/flow/${audience}`)
-export const saveFlow           = (audience, flow) => put(`/flow/${audience}`, { flow })
-export const resetFlow          = (audience)       => post(`/flow/${audience}/reset`, {})
+export const getChatbotConfig        = ()                       => get('/chatbot-config')
+export const saveChatbotConfig       = (config)                 => put('/chatbot-config', { config })
+export const resetChatbotConfig      = ()                       => post('/chatbot-config/reset', {})
+export const getConfigHistory        = ()                       => get('/chatbot-config/history')
+export const getConfigHistoryEntry   = (changed_at)             => get(`/chatbot-config/history/${encodeURIComponent(changed_at)}`)
+export const getStats                = ()                       => get('/stats')
+export const getFlow                 = (audience)               => get(`/flow/${audience}`)
+export const saveFlow                = (audience, flow)         => put(`/flow/${audience}`, { flow })
+export const resetFlow               = (audience)               => post(`/flow/${audience}/reset`, {})
+export const getFlowHistory          = (audience)               => get(`/flow/${audience}/history`)
+export const getFlowHistoryEntry     = (audience, changed_at)   => get(`/flow/${audience}/history/${encodeURIComponent(changed_at)}`)
 
 export async function getLeadsList() {
   const token = localStorage.getItem('ebam_token') || ''
