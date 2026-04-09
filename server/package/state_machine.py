@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
-import secrets_client as sc
-
 GENERAL_SYSTEM_PROMPT = (
     "You are a professional assistant for Evidence Based Advisor Marketing. "
     "Be empathetic, concise, and always guide the conversation positively. "
@@ -22,7 +20,7 @@ DEFAULT_OPTION_LLM_PROMPT = (
 
 load_dotenv()
 
-client = anthropic.AsyncAnthropic(api_key=sc.get("ANTHROPIC_API_KEY"))
+client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 DEFAULT_FLOW_PATH = Path(__file__).parent / "flows" / "default_flow.json"
 AUDIENCE_FLOW_PATHS = {
@@ -260,26 +258,6 @@ async def process_message(
                 "user_type": None,
             }
 
-        # Email validation
-        if capture_field == "email" and value:
-            import re
-            # Normalise: lowercase and strip whitespace
-            value = value.strip().lower()
-
-            # Auto-correct doubled letters in the TLD (e.g. .coom → .com, .nett → .net)
-            value = re.sub(r'\.([a-z])\1+$', lambda m: '.' + m.group(1), value)
-
-            # Require: local@domain.tld where TLD is 2–6 alpha chars
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[a-z]{2,6}$", value):
-                return {
-                    "next_state_id": current_state_id,
-                    "bot_message": "That doesn't look like a valid email address. Could you double-check and try again?",
-                    "bot_options": None,
-                    "captured": {},
-                    "is_end": False,
-                    "user_type": None,
-                }
-
         captured = {capture_field: value} if capture_field and value else {}
         next_state = get_state(flow, next_state_id)
         merged = {**collected_data, **captured}
@@ -294,12 +272,13 @@ async def process_message(
 
     # --- LLM state ---
     elif state_type == "llm":
+        # Check if the user input matches an exit option (e.g. "Ready to get in touch")
         exit_options = state.get("options", [])
         exit_transitions = state.get("transitions", {})
         if exit_options:
             matched_exit = _match_option(user_input, exit_options)
             if not matched_exit:
-                matched_exit = await _match_exit_intent(user_input, exit_options)
+                matched_exit = await _smart_match_option(user_input, exit_options)
             if matched_exit:
                 next_state_id = exit_transitions.get(matched_exit, state.get("fallback", "start"))
                 next_state = get_state(flow, next_state_id)
@@ -383,43 +362,6 @@ def _match_option(user_input: str, options: list[str]) -> str | None:
     return None
 
 
-async def _match_exit_intent(user_input: str, exit_options: list[str]) -> str | None:
-    """
-    Detect if the user wants to exit the LLM conversation (e.g. get in touch, contact, schedule).
-    Much simpler/more lenient than _smart_match_option — only used for LLM state exit options.
-    """
-    if not exit_options:
-        return None
-    # Fast keyword check first — covers the common cases without an LLM call
-    _CONTACT_KEYWORDS = [
-        "get in touch", "in touch", "contact", "reach out", "call me", "schedule",
-        "consultation", "talk to", "speak to", "connect", "callback", "sign up",
-        "interested", "let's do it", "yes please", "sounds good", "let's go",
-    ]
-    lowered = user_input.lower()
-    if any(kw in lowered for kw in _CONTACT_KEYWORDS):
-        return exit_options[0]  # only one exit option in LLM states
-    # Fallback: quick LLM intent check
-    options_list = "\n".join(f"- {opt}" for opt in exit_options)
-    prompt = (
-        f"A user is chatting with a marketing assistant. At any point they can exit by expressing "
-        f"interest in being contacted. The exit options are:\n{options_list}\n\n"
-        f"User said: \"{user_input}\"\n\n"
-        f"Does the user want to be contacted / get in touch / schedule a consultation? "
-        f"Answer YES or NO only."
-    )
-    try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=5,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        result = response.content[0].text.strip().upper()
-        return exit_options[0] if result.startswith("YES") else None
-    except Exception:
-        return None
-
-
 async def _smart_match_option(user_input: str, options: list[str]) -> str | None:
     """
     Use LLM to map free-text user input to the closest option.
@@ -443,13 +385,8 @@ async def _smart_match_option(user_input: str, options: list[str]) -> str | None
         f"  'half a million' → '$500K – $1M'\n"
         f"  'retirement' → 'Retirement planning'\n"
         f"  'I am an investor' → 'I need financial advice'\n\n"
-        f"IMPORTANT RULES:\n"
-        f"  - If their reply is a question (contains '?', starts with how/what/why/when/where/can/is/do/will), respond with NONE.\n"
-        f"  - If their reply is an objection, concern, complaint, or clearly unrelated, respond with NONE.\n"
-        f"  - Only map to an option if the user is CLEARLY and UNAMBIGUOUSLY selecting that exact option.\n"
-        f"  - For options like 'I'd like to get in touch', only match if the user explicitly says they want contact/callback/consultation — NOT if they're asking a question about trust, pricing, or anything else.\n\n"
         f"If their reply maps to an option, respond with ONLY the exact option text.\n"
-        f"Otherwise, respond with NONE."
+        f"If their reply is an objection, complaint, question, or clearly unrelated, respond with NONE."
     )
     try:
         response = await client.messages.create(

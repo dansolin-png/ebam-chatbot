@@ -7,6 +7,7 @@ import UsersPage from './pages/UsersPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import CompliancePage from './pages/CompliancePage.jsx'
 import HistoricalLeadsPage from './pages/HistoricalLeadsPage.jsx'
+import FAQPage from './pages/FAQPage.jsx'
 
 function useAuth() {
   const [token, setToken] = useState(() => localStorage.getItem('ebam_token') || '')
@@ -24,7 +25,7 @@ export default function App() {
   const location = useLocation()
   const { token, role, login, logout } = useAuth()
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
-  const isAdminArea = ['/admin', '/leads', '/users', '/login', '/compliance', '/history'].includes(location.pathname)
+  const isAdminArea = ['/admin', '/leads', '/users', '/login', '/compliance', '/history', '/faq'].includes(location.pathname)
 
   if (isEmbed) {
     return (
@@ -52,6 +53,7 @@ export default function App() {
     { path: '/compliance', label: 'Compliance' },
     { path: '/history',    label: 'History' },
     ...(role === 'admin' ? [{ path: '/users', label: 'Users' }] : []),
+    { path: '/faq', label: 'Help' },
   ]
 
   const navLinkStyle = (path) => ({
@@ -125,6 +127,7 @@ export default function App() {
         <Route path="/users"      element={<UsersPage />} />
         <Route path="/compliance" element={<CompliancePage />} />
         <Route path="/history"    element={<HistoricalLeadsPage />} />
+        <Route path="/faq"        element={<FAQPage />} />
       </Routes>
     </div>
   )

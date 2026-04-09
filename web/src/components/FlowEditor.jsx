@@ -187,6 +187,7 @@ const OPTION_MODES = [
   { value: 'llm',        label: '⚡ LLM call',       color: '#854d0e', bg: '#fef9c3' },
   { value: 'sub_choices',label: '⋮ Sub-choices',     color: '#15803d', bg: '#dcfce7' },
   { value: 'input',      label: '✏ Ask Input',       color: '#7c3aed', bg: '#ede9fe' },
+  { value: 'static',     label: '💬 Custom Reply',   color: '#b45309', bg: '#fff7ed' },
 ]
 
 function ChoiceEditor({ state, allStateIds, onUpdate }) {
@@ -391,6 +392,31 @@ function ChoiceEditor({ state, allStateIds, onUpdate }) {
                       />
                     </Field>
                   </div>
+                </div>
+              )}
+
+              {/* Custom Reply mode */}
+              {mode === 'static' && (
+                <div style={{ ...s.llmPanel, borderColor: '#fed7aa', backgroundColor: '#fff7ed' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                    💬 Custom reply when "{opt || 'this option'}" is selected
+                  </div>
+                  <Field label="Reply Message" hint="This exact text will be sent to the user">
+                    <textarea
+                      style={{ ...s.textarea, fontFamily: 'inherit', fontSize: '13px' }}
+                      rows={3}
+                      placeholder="e.g. Thank you! A member of our team will reach out shortly."
+                      value={cfg.static_message || ''}
+                      onChange={e => setOptCfg(opt, { static_message: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="After reply → go to state">
+                    <StateSelect
+                      value={cfg.next || transitions[opt] || ''}
+                      allStateIds={allStateIds}
+                      onChange={v => setOptCfg(opt, { next: v })}
+                    />
+                  </Field>
                 </div>
               )}
 
