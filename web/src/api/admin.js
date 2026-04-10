@@ -49,6 +49,20 @@ export const resetFlow               = (audience)               => post(`/flow/$
 export const getFlowHistory          = (audience)               => get(`/flow/${audience}/history`)
 export const getFlowHistoryEntry     = (audience, changed_at)   => get(`/flow/${audience}/history/${encodeURIComponent(changed_at)}`)
 
+export async function uploadBotIcon(file) {
+  const token = localStorage.getItem('ebam_token') || ''
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(BASE + '/bot-icon', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  })
+  if (res.status === 401) { handleUnauth(); throw new Error('Unauthorized') }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
 export async function getLeadsList() {
   const token = localStorage.getItem('ebam_token') || ''
   const res = await fetch(API_BASE + '/api/leads/', {

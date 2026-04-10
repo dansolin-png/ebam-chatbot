@@ -1,10 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+import os
+import uuid
+import boto3
+from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File
 from pydantic import BaseModel
 from state_machine import load_default_flow
 from prompts import CHAT_CONFIG as DEFAULT_CONFIG
 from routes.auth import verify_token
 import dynamo as db
 import rate_limit as rl
+
+_is_lambda = bool(os.getenv("AWS_EXECUTION_ENV") or os.getenv("LAMBDA_TASK_ROOT"))
+_boto_session = boto3.Session(
+    profile_name=None if _is_lambda else os.getenv("AWS_PROFILE", "ebam"),
+    region_name=os.getenv("AWS_REGION", "us-east-1"),
+)
+_s3 = _boto_session.client("s3")
+_ICON_BUCKET = "ebam-compliance-leads"
+_ICON_PREFIX = "bot-icons/"
+_CDN_BASE    = f"https://{_ICON_BUCKET}.s3.amazonaws.com"
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -122,3 +135,27 @@ def get_stats(_=Depends(require_auth)):
         "cpa_leads":          sum(1 for l in leads if l.get("user_type") == "cpa"),
         "total_messages":     messages,
     }
+
+
+# ---------------------------------------------------------------------------
+# Bot Icon Upload
+# ---------------------------------------------------------------------------
+
+_ALLOWED_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"}
+
+@router.post("/bot-icon")
+async def upload_bot_icon(file: UploadFile = File(...), _=Depends(require_auth)):
+    if file.content_type not in _ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "png"
+    key = f"{_ICON_PREFIX}{uuid.uuid4()}.{ext}"
+    data = await file.read()
+    _s3.put_object(
+        Bucket=_ICON_BUCKET,
+        Key=key,
+        Body=data,
+        ContentType=file.content_type,
+        ACL="public-read",
+    )
+    url = f"{_CDN_BASE}/{key}"
+    return {"url": url}

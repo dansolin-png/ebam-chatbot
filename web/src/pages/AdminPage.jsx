@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 // ChangeHistory uses useState internally — React hooks work across the same module
-import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow, getConfigHistory, getConfigHistoryEntry, getFlowHistory, getFlowHistoryEntry } from '../api/admin.js'
+import { getChatbotConfig, saveChatbotConfig, resetChatbotConfig, getStats, getFlow, saveFlow, resetFlow, getConfigHistory, getConfigHistoryEntry, getFlowHistory, getFlowHistoryEntry, uploadBotIcon } from '../api/admin.js'
 import FlowEditor from '../components/FlowEditor.jsx'
 import RichTextEditor from '../components/RichTextEditor.jsx'
 
@@ -135,6 +135,9 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Bot Appearance */}
+      {config && <BotAppearanceCard config={config} setConfig={setConfig} />}
+
       {/* Greeting Message */}
       {config && (
         <div style={st.card}>
@@ -234,6 +237,109 @@ function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudi
 
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Bot Appearance card
+// ---------------------------------------------------------------------------
+function BotAppearanceCard({ config, setConfig }) {
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState('')
+  const fileRef = useRef(null)
+
+  async function handleIconUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setUploadMsg('')
+    try {
+      const res = await uploadBotIcon(file)
+      setConfig(c => ({ ...c, bot_icon_url: res.url }))
+      setUploadMsg('Uploaded!')
+    } catch {
+      setUploadMsg('Upload failed')
+    } finally {
+      setUploading(false)
+      setTimeout(() => setUploadMsg(''), 3000)
+    }
+  }
+
+  const preview = config.bot_icon_url || null
+
+  return (
+    <div style={st.card}>
+      <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Bot Appearance</div>
+      <div style={{ ...st.sectionHint, marginBottom: 16 }}>Controls the name, subtitle, and icon shown inside the chat widget.</div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+
+        {/* Icon preview + upload */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 90 }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #c9a84c, #e0c070)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 28, overflow: 'hidden', flexShrink: 0,
+            border: '2px solid #e2e8f0',
+          }}>
+            {preview
+              ? <img src={preview} alt="icon" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : (config.bot_icon || '🎬')}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIconUpload} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            style={{ ...st.resetBtn, fontSize: 11, padding: '4px 10px' }}
+          >
+            {uploading ? 'Uploading…' : 'Upload image'}
+          </button>
+          {preview && (
+            <button
+              onClick={() => setConfig(c => ({ ...c, bot_icon_url: '' }))}
+              style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              Remove image
+            </button>
+          )}
+          {uploadMsg && <span style={{ fontSize: 11, color: uploadMsg === 'Uploaded!' ? '#16a34a' : '#ef4444' }}>{uploadMsg}</span>}
+        </div>
+
+        {/* Text fields */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 200 }}>
+          <div>
+            <label style={st.fieldLabel}>Bot Icon (emoji) <span style={st.fieldHint}>— used when no image is uploaded</span></label>
+            <input
+              style={{ ...st.textarea, height: 'auto', padding: '8px 12px', marginTop: 4, fontSize: 20, width: 70 }}
+              value={config.bot_icon || ''}
+              maxLength={4}
+              onChange={e => setConfig(c => ({ ...c, bot_icon: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label style={st.fieldLabel}>Bot Name</label>
+            <input
+              style={{ ...st.textarea, height: 'auto', padding: '8px 12px', marginTop: 4 }}
+              value={config.bot_name || ''}
+              placeholder="Avatar Marketing Assistant"
+              onChange={e => setConfig(c => ({ ...c, bot_name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label style={st.fieldLabel}>Bot Subtitle</label>
+            <input
+              style={{ ...st.textarea, height: 'auto', padding: '8px 12px', marginTop: 4 }}
+              value={config.bot_subtitle || ''}
+              placeholder="Evidence Based Advisor Marketing"
+              onChange={e => setConfig(c => ({ ...c, bot_subtitle: e.target.value }))}
+            />
+          </div>
+        </div>
+
+      </div>
     </div>
   )
 }

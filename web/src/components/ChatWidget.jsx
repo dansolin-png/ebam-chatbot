@@ -124,10 +124,14 @@ export default function ChatWidget({ defaultOpen = false }) {
 
           {/* Header */}
           <div style={s.header}>
-            <div style={s.avatarIcon}>🎬</div>
+            <div style={s.avatarIcon}>
+              {config?.bot_icon_url
+                ? <img src={config.bot_icon_url} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                : (config?.bot_icon || '🎬')}
+            </div>
             <div style={s.headerText}>
-              <div style={s.headerTitle}>Avatar Marketing Assistant</div>
-              <div style={s.headerSub}>Evidence Based Advisor Marketing</div>
+              <div style={s.headerTitle}>{config?.bot_name || 'Avatar Marketing Assistant'}</div>
+              <div style={s.headerSub}>{config?.bot_subtitle || 'Evidence Based Advisor Marketing'}</div>
             </div>
             <div style={s.statusDot}>Online</div>
           </div>
@@ -143,6 +147,8 @@ export default function ChatWidget({ defaultOpen = false }) {
           {/* Messages */}
           <div style={s.chatBody}>
             {messages.map((msg, i) => {
+              const botAvatar = config?.bot_icon_url || config?.bot_icon || '🎬'
+              const isImgUrl  = config?.bot_icon_url
               if (msg.role === 'greeting') {
                 return (
                   <GreetingMessage
@@ -150,18 +156,24 @@ export default function ChatWidget({ defaultOpen = false }) {
                     content={msg.content}
                     audienceSelected={!!audience}
                     onSelect={handleSelectAudience}
+                    botAvatar={botAvatar}
+                    isImgUrl={isImgUrl}
                   />
                 )
               }
               return (
-                <ChatMessage key={i} role={msg.role} content={msg.content} />
+                <ChatMessage key={i} role={msg.role} content={msg.content} botAvatar={botAvatar} isImgUrl={isImgUrl} />
               )
             })}
 
             {/* Typing indicator */}
             {isTyping && (
               <div style={{ ...s.messageRow, alignSelf: 'flex-start' }}>
-                <div style={s.avatarSmall}>🎬</div>
+                <div style={s.avatarSmall}>
+                  {config?.bot_icon_url
+                    ? <img src={config.bot_icon_url} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                    : (config?.bot_icon || '🎬')}
+                </div>
                 <div style={s.typingIndicator}>
                   <span style={{ ...s.typingDot, animationDelay: '0ms' }} />
                   <span style={{ ...s.typingDot, animationDelay: '200ms' }} />
@@ -273,10 +285,14 @@ export default function ChatWidget({ defaultOpen = false }) {
 // ---------------------------------------------------------------------------
 // Greeting message with audience selection buttons
 // ---------------------------------------------------------------------------
-function GreetingMessage({ content, audienceSelected, onSelect }) {
+function GreetingMessage({ content, audienceSelected, onSelect, botAvatar, isImgUrl }) {
   return (
     <div style={{ ...s.messageRow, alignSelf: 'flex-start', animation: 'ebam-fadein 0.3s ease both' }}>
-      <div style={s.avatarSmall}>🎬</div>
+      <div style={s.avatarSmall}>
+        {isImgUrl
+          ? <img src={botAvatar} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+          : botAvatar}
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <div
           style={s.bubbleAI}
@@ -312,7 +328,7 @@ function GreetingMessage({ content, audienceSelected, onSelect }) {
 // ---------------------------------------------------------------------------
 // Individual chat message
 // ---------------------------------------------------------------------------
-function ChatMessage({ role, content }) {
+function ChatMessage({ role, content, botAvatar, isImgUrl }) {
   const isUser = role === 'user'
   return (
     <div style={{
@@ -322,7 +338,9 @@ function ChatMessage({ role, content }) {
       animation: 'ebam-fadein 0.3s ease both',
     }}>
       <div style={{ ...s.avatarSmall, ...(isUser ? s.avatarUser : {}) }}>
-        {isUser ? 'YOU' : '🎬'}
+        {isUser ? 'YOU' : (isImgUrl
+          ? <img src={botAvatar} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+          : (botAvatar || '🎬'))}
       </div>
       <div
         style={isUser ? s.bubbleUser : s.bubbleAI}

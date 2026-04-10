@@ -10,6 +10,10 @@ CHAT_CONFIG = {
         "Before we dive in — are you a financial advisor or a CPA?"
     ),
 
+    "bot_icon":     "🎬",
+    "bot_name":     "Avatar Marketing Assistant",
+    "bot_subtitle": "Evidence Based Advisor Marketing",
+
     "disclaimer": (
         "This chat is provided for informational purposes only and does not constitute "
         "financial, legal, or investment advice. Evidence Based Advisor Marketing, LLC is "

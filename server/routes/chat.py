@@ -51,7 +51,14 @@ def _get_flow(audience: str) -> dict:
 @router.get("/config")
 def get_chat_config():
     cfg = _get_active_config()
-    return {"greeting": cfg.get("greeting"), "disclaimer": cfg.get("disclaimer", "")}
+    return {
+        "greeting":     cfg.get("greeting"),
+        "disclaimer":   cfg.get("disclaimer", ""),
+        "bot_icon":     cfg.get("bot_icon", "🎬"),
+        "bot_name":     cfg.get("bot_name", "Avatar Marketing Assistant"),
+        "bot_subtitle": cfg.get("bot_subtitle", "Evidence Based Advisor Marketing"),
+        "bot_icon_url": cfg.get("bot_icon_url", ""),   # S3/CDN image URL — takes priority over bot_icon
+    }
 
 
 # ---------------------------------------------------------------------------
