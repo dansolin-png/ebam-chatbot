@@ -114,12 +114,7 @@ export default function AdminPage() {
 
       {/* Allowed Origins */}
       {config && (
-        <div style={st.card}>
-          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Allowed Origins</div>
-          <div style={{ ...st.sectionHint, marginBottom: 10 }}>
-            Domains allowed to embed the chatbot widget. One per line (e.g. <code>https://yourdomain.com</code>).
-            Leave empty to allow all origins. Use <code>*</code> to explicitly allow all.
-          </div>
+        <CollapsibleCard title="Allowed Origins" hint="Domains permitted to embed the chat widget (CORS).">
           <textarea
             style={{ ...st.textarea, height: 100, fontFamily: 'monospace', fontSize: 12 }}
             placeholder={'https://yourdomain.com\nhttps://www.yourdomain.com'}
@@ -130,45 +125,47 @@ export default function AdminPage() {
             }))}
           />
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
-            Requests from unlisted origins will receive a 403 error. Rate limit: 20 messages / minute per IP.
+            One per line. Leave empty or use <code>*</code> to allow all. Rate limit: 20 messages / minute per IP.
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       {/* Bot Appearance */}
-      {config && <BotAppearanceCard config={config} setConfig={setConfig} />}
+      {config && (
+        <CollapsibleCard title="Bot Appearance" hint="Icon, name, and subtitle shown inside the chat widget.">
+          <BotAppearanceCard config={config} setConfig={setConfig} />
+        </CollapsibleCard>
+      )}
 
       {/* Greeting Message */}
       {config && (
-        <div style={st.card}>
-          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Greeting Message</div>
-          <div style={{ ...st.sectionHint, marginBottom: 10 }}>Shown to every visitor before they select their audience.</div>
+        <CollapsibleCard title="Greeting Message" hint="Shown to every visitor before they select their audience.">
           <RichTextEditor
             value={config.greeting || ''}
             onChange={v => setConfig(c => ({ ...c, greeting: v }))}
             minHeight={80}
           />
-        </div>
+        </CollapsibleCard>
       )}
 
       {/* Disclaimer */}
       {config && (
-        <div style={st.card}>
-          <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Disclaimer</div>
-          <div style={{ ...st.sectionHint, marginBottom: 10 }}>
-            Shown as a small banner inside the chat widget on every session. Required for SEC/FINRA compliance.
-          </div>
+        <CollapsibleCard title="Disclaimer" hint="Compliance banner displayed inside the widget on every session.">
           <textarea
             style={{ ...st.textarea, height: 80 }}
             placeholder="e.g. This chat is for informational purposes only and does not constitute financial advice..."
             value={config.disclaimer || ''}
             onChange={e => setConfig(c => ({ ...c, disclaimer: e.target.value }))}
           />
-        </div>
+        </CollapsibleCard>
       )}
 
       {/* Change History */}
-      {config && <ChangeHistory getHistory={getConfigHistory} getEntry={getConfigHistoryEntry} label="Chatbot Config" onRestore={cfg => setConfig(cfg)} />}
+      {config && (
+        <div style={{ ...st.card, marginTop: 0 }}>
+          <ChangeHistory getHistory={getConfigHistory} getEntry={getConfigHistoryEntry} label="Chatbot Config" onRestore={cfg => setConfig(cfg)} />
+        </div>
+      )}
 
       {/* Per-audience sections */}
       {config && AUDIENCES.map(({ key, label, hint }) => (
@@ -243,7 +240,34 @@ function AudienceSection({ label, hint, audience, flow, isOpen, onToggle, onAudi
 
 
 // ---------------------------------------------------------------------------
-// Bot Appearance card
+// Collapsible card — shared wrapper for config sections
+// ---------------------------------------------------------------------------
+function CollapsibleCard({ title, hint, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div style={{ ...st.card, padding: 0, overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '16px 20px' }}
+      >
+        <div>
+          <div style={st.sectionTitle}>{title}</div>
+          {hint && <div style={{ ...st.sectionHint, marginTop: 2 }}>{hint}</div>}
+        </div>
+        <span style={{ color: '#94a3b8', fontSize: 18, flexShrink: 0, marginLeft: 12 }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ padding: '0 20px 18px', borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ paddingTop: 16 }}>{children}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Bot Appearance card (inner content — wrapped by CollapsibleCard)
 // ---------------------------------------------------------------------------
 function BotAppearanceCard({ config, setConfig }) {
   const [uploading, setUploading] = useState(false)
@@ -270,11 +294,7 @@ function BotAppearanceCard({ config, setConfig }) {
   const preview = config.bot_icon_url || null
 
   return (
-    <div style={st.card}>
-      <div style={{ ...st.sectionTitle, marginBottom: 4 }}>Bot Appearance</div>
-      <div style={{ ...st.sectionHint, marginBottom: 16 }}>Controls the name, subtitle, and icon shown inside the chat widget.</div>
-
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
 
         {/* Icon preview + upload */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 90 }}>
@@ -339,7 +359,6 @@ function BotAppearanceCard({ config, setConfig }) {
           </div>
         </div>
 
-      </div>
     </div>
   )
 }
