@@ -15,7 +15,7 @@ _boto_session = boto3.Session(
     region_name=os.getenv("AWS_REGION", "us-east-1"),
 )
 _s3 = _boto_session.client("s3")
-_ICON_BUCKET = "ebam-compliance-leads"
+_ICON_BUCKET = "ebam-bot-assets"
 _ICON_PREFIX = "bot-icons/"
 _CDN_BASE    = f"https://{_ICON_BUCKET}.s3.amazonaws.com"
 
@@ -155,7 +155,6 @@ async def upload_bot_icon(file: UploadFile = File(...), _=Depends(require_auth))
         Key=key,
         Body=data,
         ContentType=file.content_type,
-        ACL="public-read",
     )
     url = f"{_CDN_BASE}/{key}"
     return {"url": url}
