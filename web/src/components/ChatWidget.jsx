@@ -398,6 +398,7 @@ const s = {
     justifyContent: 'center',
     fontSize: '20px',
     flexShrink: 0,
+    overflow: 'hidden',
     boxShadow: '0 4px 16px rgba(201,168,76,0.3)',
     animation: 'ebam-pulse 2.5s ease-in-out infinite',
   },
@@ -455,6 +456,7 @@ const s = {
     fontSize: 13,
     flexShrink: 0,
     marginTop: 3,
+    overflow: 'hidden',
     boxShadow: '0 2px 8px rgba(201,168,76,0.25)',
   },
   avatarUser: {
