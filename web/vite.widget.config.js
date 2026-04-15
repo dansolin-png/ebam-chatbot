@@ -15,7 +15,7 @@ export default defineConfig({
     lib: {
       entry:    'widget/index.jsx',
       name:     'EBAMWidget',
-      fileName: () => 'widget',
+      fileName: () => 'widget.js',
       formats:  ['iife'],
     },
     outDir:    'dist-widget',

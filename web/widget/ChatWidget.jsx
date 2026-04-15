@@ -10,10 +10,24 @@ const WHITE    = '#f8f6f1'
 const BUBBLE_AI = '#1a2840'
 const BUBBLE_US = '#1a3a5c'
 
+function BotAvatar({ config, style, className }) {
+  const imgUrl = config?.bot_icon_url
+  const emoji  = config?.bot_icon || '🎬'
+  if (imgUrl) {
+    return (
+      <div style={style} className={className}>
+        <img src={imgUrl} alt="bot" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+      </div>
+    )
+  }
+  return <div style={style} className={className}>{emoji}</div>
+}
+
 export default function ChatWidget() {
-  const [open, setOpen]           = useState(false)
+  const [open, setOpen]           = useState(!!(window.EBAMChat && window.EBAMChat.autoOpen))
   const [config, setConfig]       = useState(null)
   const [sessionId, setSessionId] = useState(null)
+  const [sessionState, setSessionState] = useState(null)
   const [audience, setAudience]   = useState(null)
   const [messages, setMessages]   = useState([])
   const [quickReplies, setQuickReplies] = useState(null)
@@ -44,20 +58,22 @@ export default function ChatWidget() {
     try {
       const res = await startSession(type)
       setSessionId(res.session_id)
+      setSessionState(res.session_state || null)
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: type === 'advisor' ? 'Financial Advisor' : 'CPA' },
+        { role: 'bot',  content: res.message, options: res.options },
+      ])
+      if (res.options) setQuickReplies(res.options)
     } catch {
       addBot("Sorry, I couldn't connect. Please try again.")
-      return
     }
-    setMessages(prev => [
-      ...prev,
-      { role: 'user', content: type === 'advisor' ? 'Financial Advisor' : 'CPA' },
-      { role: 'bot',  content: config[type].welcome },
-    ])
-    setQuickReplies(config[type].quickReplies)
   }
 
-  function addBot(content) {
-    setMessages(prev => [...prev, { role: 'bot', content }])
+  function addBot(content, options) {
+    setMessages(prev => [...prev, { role: 'bot', content, options }])
+    if (options) setQuickReplies(options)
+    else setQuickReplies(null)
   }
 
   async function submit(text) {
@@ -66,8 +82,10 @@ export default function ChatWidget() {
     setQuickReplies(null)
     setIsTyping(true)
     try {
-      const res = await sendLLMMessage(sessionId, text, audience)
-      addBot(res.message)
+      const res = await sendLLMMessage(sessionId, text, sessionState)
+      if (res.session_state !== undefined) setSessionState(res.session_state)
+      addBot(res.message, res.options)
+      if (res.is_end) setQuickReplies(null)
     } catch {
       addBot("I'm having a brief technical issue. Please try again in a moment.")
     } finally {
@@ -77,7 +95,7 @@ export default function ChatWidget() {
 
   function handleRestart() {
     setMessages([]); setQuickReplies(null); setAudience(null)
-    setSessionId(null); setInputValue(''); setIsTyping(false)
+    setSessionId(null); setSessionState(null); setInputValue(''); setIsTyping(false)
     setStarted(false); setConfig(null)
     setTimeout(() => {
       setStarted(true)
@@ -88,30 +106,44 @@ export default function ChatWidget() {
     }, 0)
   }
 
+  const botName     = config?.bot_name     || 'Avatar Marketing Assistant'
+  const botSubtitle = config?.bot_subtitle || 'Evidence Based Advisor Marketing'
+  const disclaimer  = config?.disclaimer   || ''
+
   return (
     <div>
       {open && (
         <div style={s.panel}>
           {/* Header */}
           <div style={s.header}>
-            <div style={s.avatarIcon}>🎬</div>
-            <div style={{ flex: 1 }}>
-              <div style={s.headerTitle}>Avatar Marketing Assistant</div>
-              <div style={s.headerSub}>Evidence Based Advisor Marketing</div>
+            <div className="ebam-avatar-wrap">
+              <BotAvatar config={config} style={s.avatarIcon} className="ebam-avatar-inner" />
             </div>
-            <div style={s.statusDot}>Online</div>
+            <div style={{ flex: 1 }}>
+              <div style={s.headerTitle}>{botName}</div>
+              <div style={s.headerSub}>{botSubtitle}</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <div style={s.statusDot}>Online</div>
+              <button onClick={handleRestart} style={s.restartBtn} title="Restart">↺</button>
+            </div>
           </div>
+
+          {/* Disclaimer */}
+          {disclaimer && (
+            <div style={s.disclaimer}>{disclaimer}</div>
+          )}
 
           {/* Messages */}
           <div style={s.body}>
             {messages.map((msg, i) =>
               msg.role === 'greeting'
-                ? <GreetingMsg key={i} content={msg.content} selected={!!audience} onSelect={handleSelectAudience} />
-                : <Msg key={i} role={msg.role} content={msg.content} />
+                ? <GreetingMsg key={i} content={msg.content} selected={!!audience} onSelect={handleSelectAudience} config={config} />
+                : <Msg key={i} role={msg.role} content={msg.content} config={config} />
             )}
             {isTyping && (
               <div style={{ ...s.row, alignSelf: 'flex-start' }}>
-                <div style={s.avAI}>🎬</div>
+                <BotAvatar config={config} style={s.avAI} />
                 <div style={s.typing}>
                   <span style={{ ...s.dot, animationDelay: '0ms' }} />
                   <span style={{ ...s.dot, animationDelay: '200ms' }} />
@@ -166,18 +198,24 @@ export default function ChatWidget() {
       <style>{`
         @keyframes ebam-t{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
         @keyframes ebam-f{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes ebam-pulse{0%,100%{box-shadow:0 0 0 0 rgba(201,168,76,0.55),0 4px 16px rgba(201,168,76,0.3)}50%{box-shadow:0 0 0 7px rgba(201,168,76,0),0 4px 16px rgba(201,168,76,0.3)}}
+        @keyframes ebam-halo{0%,100%{opacity:0.55;transform:scale(1)}50%{opacity:0;transform:scale(1.55)}}
+        .ebam-avatar-wrap{position:relative;flex-shrink:0}
+        .ebam-avatar-wrap::before{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(201,168,76,0.7);animation:ebam-halo 2.4s ease-in-out infinite;pointer-events:none}
+        .ebam-avatar-wrap::after{content:'';position:absolute;inset:-8px;border-radius:50%;border:1.5px solid rgba(201,168,76,0.3);animation:ebam-halo 2.4s ease-in-out infinite 0.6s;pointer-events:none}
+        .ebam-avatar-inner{animation:ebam-pulse 2.4s ease-in-out infinite}
         .ebam-qr:hover{background:rgba(201,168,76,0.12)!important;border-color:#c9a84c!important}
       `}</style>
     </div>
   )
 }
 
-function GreetingMsg({ content, selected, onSelect }) {
+function GreetingMsg({ content, selected, onSelect, config }) {
   return (
     <div style={{ ...s.row, alignSelf: 'flex-start', animation: 'ebam-f .3s ease both' }}>
-      <div style={s.avAI}>🎬</div>
+      <BotAvatar config={config} style={s.avAI} />
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <div style={s.bubAI}><Fmt text={content} /></div>
+        <div style={s.bubAI}><Msg2Html text={content} /></div>
         {!selected && (
           <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
             {[['advisor','💼','Financial Advisor'],['cpa','🧾','CPA']].map(([type, icon, label]) => (
@@ -193,17 +231,26 @@ function GreetingMsg({ content, selected, onSelect }) {
   )
 }
 
-function Msg({ role, content }) {
+function Msg({ role, content, config }) {
   const user = role === 'user'
   return (
     <div style={{ ...s.row, alignSelf: user ? 'flex-end' : 'flex-start', flexDirection: user ? 'row-reverse' : 'row', animation: 'ebam-f .3s ease both' }}>
-      <div style={{ ...s.avAI, ...(user ? s.avUser : {}) }}>{user ? 'YOU' : '🎬'}</div>
-      <div style={user ? s.bubUser : s.bubAI}><Fmt text={content} /></div>
+      {user
+        ? <div style={{ ...s.avAI, ...s.avUser }}>YOU</div>
+        : <BotAvatar config={config} style={s.avAI} />
+      }
+      <div style={user ? s.bubUser : s.bubAI}><Msg2Html text={content} /></div>
     </div>
   )
 }
 
-function Fmt({ text }) {
+function Msg2Html({ text }) {
+  if (!text) return null
+  // If content contains HTML tags, render as HTML
+  if (/<[a-z][\s\S]*>/i.test(text)) {
+    return <span dangerouslySetInnerHTML={{ __html: text }} />
+  }
+  // Otherwise render markdown-lite (bold + newlines)
   return text.split(/\n\n+/).map((para, pi) => (
     <p key={pi} style={{ margin: pi > 0 ? '8px 0 0' : 0 }}>
       {para.split(/\*\*(.*?)\*\*/g).map((part, i) =>
@@ -216,15 +263,17 @@ function Fmt({ text }) {
 }
 
 const s = {
-  panel:      { position:'fixed', bottom:88, right:24, width:400, maxHeight:600, display:'flex', flexDirection:'column', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,0.5)', zIndex:2147483647, fontFamily:"'DM Sans',-apple-system,sans-serif" },
+  panel:      { position:'fixed', bottom:88, right:16, width:360, maxWidth:'calc(100vw - 32px)', maxHeight:'calc(100vh - 110px)', display:'flex', flexDirection:'column', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,0.5)', zIndex:2147483647, fontFamily:"'DM Sans',-apple-system,sans-serif", background:NAVY_MID },
   header:     { background:`linear-gradient(135deg,${NAVY_MID},${NAVY_LT})`, border:`1px solid rgba(201,168,76,0.25)`, borderBottom:'none', padding:'20px 24px', display:'flex', alignItems:'center', gap:14 },
-  avatarIcon: { width:46, height:46, background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 4px 16px rgba(201,168,76,0.3)' },
+  avatarIcon: { width:46, height:46, background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 4px 16px rgba(201,168,76,0.3)', overflow:'hidden' },
   headerTitle:{ fontFamily:"'Playfair Display',Georgia,serif", fontSize:'1.05rem', color:WHITE, fontWeight:600 },
   headerSub:  { fontSize:'0.7rem', color:GOLD, marginTop:2, letterSpacing:'0.06em', textTransform:'uppercase' },
   statusDot:  { fontSize:'0.7rem', color:'#5dba8a', fontWeight:500, display:'flex', alignItems:'center', gap:5 },
+  restartBtn: { background:'none', border:'none', color:'rgba(201,168,76,0.5)', fontSize:'1rem', cursor:'pointer', padding:0, lineHeight:1 },
+  disclaimer: { background:'rgba(201,168,76,0.08)', borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', padding:'8px 16px', fontSize:'0.72rem', color:'rgba(248,246,241,0.55)', lineHeight:1.5, textAlign:'center' },
   body:       { background:NAVY_MID, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', flex:1, overflowY:'auto', padding:'22px 22px 10px', display:'flex', flexDirection:'column', gap:14, maxHeight:400 },
   row:        { display:'flex', gap:9, maxWidth:'88%' },
-  avAI:       { width:30, height:30, borderRadius:'50%', background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0, marginTop:3 },
+  avAI:       { width:30, height:30, borderRadius:'50%', background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0, marginTop:3, overflow:'hidden' },
   avUser:     { background:BUBBLE_US, border:'1px solid rgba(201,168,76,0.2)', color:GOLD, fontSize:'9px', fontWeight:700 },
   bubAI:      { background:BUBBLE_AI, border:'1px solid rgba(201,168,76,0.12)', borderRadius:'4px 14px 14px 14px', padding:'11px 15px', fontSize:'0.88rem', lineHeight:1.65, color:'rgba(248,246,241,0.92)', fontWeight:300 },
   bubUser:    { background:BUBBLE_US, border:'1px solid rgba(201,168,76,0.2)', borderRadius:'14px 4px 14px 14px', padding:'11px 15px', fontSize:'0.88rem', lineHeight:1.65, color:'rgba(248,246,241,0.92)', fontWeight:300 },
@@ -237,5 +286,5 @@ const s = {
   input:      { flex:1, background:NAVY_MID, border:'1px solid rgba(201,168,76,0.2)', borderRadius:10, padding:'10px 13px', color:WHITE, fontFamily:"'DM Sans',sans-serif", fontSize:'0.86rem', fontWeight:300, resize:'none', minHeight:42, maxHeight:120, lineHeight:1.5, outline:'none' },
   sendBtn:    { width:42, height:42, background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, border:'none', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 4px 12px rgba(201,168,76,0.25)' },
   branding:   { padding:'7px 16px', fontSize:'0.68rem', color:'rgba(138,155,176,0.45)', letterSpacing:'0.04em', textAlign:'center', background:NAVY_LT, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', borderBottom:'1px solid rgba(201,168,76,0.2)', borderRadius:'0 0 20px 20px' },
-  fab:        { position:'fixed', bottom:24, right:24, width:52, height:52, borderRadius:'50%', background:NAVY, color:WHITE, border:`2px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 6px 24px rgba(13,27,42,0.45)', zIndex:2147483647, transition:'all .2s' },
+  fab:        { position:'fixed', bottom:24, right:16, width:52, height:52, borderRadius:'50%', background:NAVY, color:WHITE, border:`2px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 6px 24px rgba(13,27,42,0.45)', zIndex:2147483647, transition:'all .2s' },
 }

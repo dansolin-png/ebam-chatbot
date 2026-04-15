@@ -3,7 +3,6 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 from routes import chat, admin, leads, auth, compliance, history
@@ -14,18 +13,47 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="EBAM Chatbot API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://main.d142ap2pr34amq.amplifyapp.com",
-        "https://ebam.buzzybrains.net",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+# ---------------------------------------------------------------------------
+# Dynamic CORS — reads allowed_origins from DynamoDB config (same source as
+# rate_limit.py) so adding an origin in the admin console is sufficient.
+# Falls back to a safe default list if config is unavailable.
+# ---------------------------------------------------------------------------
+
+_CORS_FALLBACK = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://main.d142ap2pr34amq.amplifyapp.com",
+    "https://ebam.buzzybrains.net",
+]
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as StarletteResponse
+import rate_limit as rl
+
+class DynamicCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+        allowed = rl.get_allowed_origins_cached()
+        # If no origins configured, fall back to hardcoded list
+        effective = allowed if allowed else _CORS_FALLBACK
+        origin_ok = rl.is_origin_allowed(origin, effective)
+
+        if request.method == "OPTIONS":
+            response = StarletteResponse(status_code=200)
+        else:
+            response = await call_next(request)
+
+        if origin_ok and origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Vary"] = "Origin"
+
+        return response
+
+app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")

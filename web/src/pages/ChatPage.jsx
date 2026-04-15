@@ -2,8 +2,9 @@ import { useEffect } from 'react'
 
 export default function ChatPage() {
   useEffect(() => {
-    if (document.getElementById('ebam-btn')) return // already loaded
-    window.EBAMChat = { accentColor: '#1e3a5f', autoOpen: true }
+    if (document.getElementById('ebam-widget-root')) return // already loaded
+    const apiBase = import.meta.env.VITE_API_BASE_URL || ''
+    window.EBAMChat = { accentColor: '#1e3a5f', autoOpen: true, apiBase }
     const script = document.createElement('script')
     script.src = '/widget.js'
     script.async = true
@@ -51,9 +52,18 @@ export default function ChatPage() {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>Chat widget is active</div>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>The widget opens automatically when you land on this page.</div>
           </div>
-          <div style={{ marginLeft: 'auto' }}>
-            <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', whiteSpace: 'nowrap' }}>
-              {`<script src="/widget.js"></script>`}
+          <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', display: 'block' }}>
+              {`<script>`}
+            </code>
+            <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', display: 'block' }}>
+              &nbsp;&nbsp;{`window.EBAMChat = { apiBase: 'https://api.buzzybrains.net', autoOpen: true }`}
+            </code>
+            <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', display: 'block' }}>
+              {`</script>`}
+            </code>
+            <code style={{ fontSize: 11, backgroundColor: '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: '#475569', display: 'block' }}>
+              {`<script src="https://ebam.buzzybrains.net/widget.js"></script>`}
             </code>
           </div>
         </div>
