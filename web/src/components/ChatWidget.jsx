@@ -20,8 +20,35 @@ export default function ChatWidget({ defaultOpen = false }) {
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping]     = useState(false)
   const [started, setStarted]       = useState(false)
+  const [isListening, setIsListening] = useState(false)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
+  const recognitionRef = useRef(null)
+
+  const voiceSupported = typeof window !== 'undefined' &&
+    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+
+  function toggleVoice() {
+    if (isListening) {
+      recognitionRef.current?.stop()
+      return
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    const rec = new SR()
+    rec.lang = 'en-US'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+    rec.onstart = () => setIsListening(true)
+    rec.onend   = () => setIsListening(false)
+    rec.onerror = () => setIsListening(false)
+    rec.onresult = e => {
+      const transcript = e.results[0][0].transcript
+      setInputValue(prev => (prev ? prev + ' ' : '') + transcript)
+      inputRef.current?.focus()
+    }
+    recognitionRef.current = rec
+    rec.start()
+  }
 
   // Auto-scroll
   useEffect(() => {
@@ -229,6 +256,24 @@ export default function ChatWidget({ defaultOpen = false }) {
                 }
               }}
             />
+            {voiceSupported && (
+              <button
+                style={{ ...s.micBtn, ...(isListening ? s.micBtnActive : {}) }}
+                onClick={toggleVoice}
+                disabled={!audience || isTyping}
+                title={isListening ? 'Stop recording' : 'Speak'}
+              >
+                {isListening ? (
+                  <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: GOLD }}>
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: GRAY }}>
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-3.07A7 7 0 0 0 19 11h-2z" />
+                  </svg>
+                )}
+              </button>
+            )}
             <button
               style={s.sendBtn}
               onClick={handleSend}
@@ -573,6 +618,24 @@ const s = {
     maxHeight: 120,
     lineHeight: 1.5,
     outline: 'none',
+  },
+  micBtn: {
+    width: 44,
+    height: 44,
+    background: NAVY_MID,
+    border: '1px solid rgba(201,168,76,0.25)',
+    borderRadius: 11,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'all 0.2s',
+  },
+  micBtnActive: {
+    border: `1px solid ${GOLD}`,
+    background: 'rgba(201,168,76,0.12)',
+    animation: 'ebam-pulse 1s ease-in-out infinite',
   },
   sendBtn: {
     width: 44,
