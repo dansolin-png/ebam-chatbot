@@ -25,7 +25,8 @@
       "What does it cost?",
       "Compliance concerns?",
       "I'm not tech-savvy",
-      "My clients are older"
+      "My clients are older",
+      "I would like to get in touch"
     ],
     "transitions": {
       "Why should I use avatar videos?": "llm_chat",
@@ -33,7 +34,8 @@
       "What does it cost?": "llm_chat",
       "Compliance concerns?": "llm_chat",
       "I'm not tech-savvy": "llm_chat",
-      "My clients are older": "llm_chat"
+      "My clients are older": "llm_chat",
+      "I would like to get in touch": "end"
     },
     "option_config": {
       "Why should I use avatar videos?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
@@ -41,7 +43,8 @@
       "What does it cost?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
       "Compliance concerns?": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
       "I'm not tech-savvy": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
-      "My clients are older": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" }
+      "My clients are older": { "mode": "llm", "llm_prompt": "", "next": "llm_chat" },
+      "I would like to get in touch": { "mode": "transition" }
     },
     "fallback": "handle_objection"
   },

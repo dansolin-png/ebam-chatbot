@@ -34,7 +34,30 @@ export default function ChatWidget() {
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping]   = useState(false)
   const [started, setStarted]     = useState(false)
+  const [isListening, setIsListening] = useState(false)
   const bottomRef = useRef(null)
+  const inputRef  = useRef(null)
+  const recognitionRef = useRef(null)
+
+  const voiceSupported = typeof window !== 'undefined' &&
+    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+
+  function toggleVoice() {
+    if (isListening) { recognitionRef.current?.stop(); return }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    const rec = new SR()
+    rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1
+    rec.onstart = () => setIsListening(true)
+    rec.onend   = () => setIsListening(false)
+    rec.onerror = () => setIsListening(false)
+    rec.onresult = e => {
+      const t = e.results[0][0].transcript
+      setInputValue(prev => (prev ? prev + ' ' : '') + t)
+      inputRef.current?.focus()
+    }
+    recognitionRef.current = rec
+    rec.start()
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -164,6 +187,7 @@ export default function ChatWidget() {
           {/* Footer */}
           <div style={s.footer}>
             <textarea
+              ref={inputRef}
               style={s.input}
               value={inputValue}
               placeholder="Type your question here..."
@@ -176,6 +200,16 @@ export default function ChatWidget() {
               }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(inputValue.trim()); setInputValue('') } }}
             />
+            {voiceSupported && (
+              <button style={{ ...s.micBtn, ...(isListening ? s.micBtnActive : {}) }}
+                onClick={toggleVoice} disabled={!audience || isTyping}
+                title={isListening ? 'Stop' : 'Speak'}>
+                {isListening
+                  ? <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, fill: GOLD }}><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  : <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, fill: 'rgba(138,155,176,0.8)' }}><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-3.07A7 7 0 0 0 19 11h-2z"/></svg>
+                }
+              </button>
+            )}
             <button style={s.sendBtn} disabled={!audience || isTyping || !inputValue.trim()}
               onClick={() => { submit(inputValue.trim()); setInputValue('') }}>
               <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: NAVY }}>
@@ -284,6 +318,8 @@ const s = {
   qrBtn:      { background:'transparent', border:'1px solid rgba(201,168,76,0.35)', color:GOLD_LT, padding:'6px 12px', borderRadius:20, fontSize:'0.77rem', cursor:'pointer', transition:'all .2s' },
   footer:     { background:NAVY_LT, border:'1px solid rgba(201,168,76,0.2)', borderTop:'1px solid rgba(201,168,76,0.1)', padding:'12px 16px', display:'flex', gap:9, alignItems:'flex-end' },
   input:      { flex:1, background:NAVY_MID, border:'1px solid rgba(201,168,76,0.2)', borderRadius:10, padding:'10px 13px', color:WHITE, fontFamily:"'DM Sans',sans-serif", fontSize:'0.86rem', fontWeight:300, resize:'none', minHeight:42, maxHeight:120, lineHeight:1.5, outline:'none' },
+  micBtn:     { width:42, height:42, background:NAVY_MID, border:'1px solid rgba(201,168,76,0.25)', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .2s' },
+  micBtnActive: { border:`1px solid ${GOLD}`, background:'rgba(201,168,76,0.12)', animation:'ebam-pulse 1s ease-in-out infinite' },
   sendBtn:    { width:42, height:42, background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, border:'none', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 4px 12px rgba(201,168,76,0.25)' },
   branding:   { padding:'7px 16px', fontSize:'0.68rem', color:'rgba(138,155,176,0.45)', letterSpacing:'0.04em', textAlign:'center', background:NAVY_LT, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', borderBottom:'1px solid rgba(201,168,76,0.2)', borderRadius:'0 0 20px 20px' },
   fab:        { position:'fixed', bottom:24, right:16, width:52, height:52, borderRadius:'50%', background:NAVY, color:WHITE, border:`2px solid ${GOLD}`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 6px 24px rgba(13,27,42,0.45)', zIndex:2147483647, transition:'all .2s' },

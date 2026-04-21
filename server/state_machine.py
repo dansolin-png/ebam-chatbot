@@ -149,6 +149,18 @@ async def process_message(
         if not matched_option:
             matched_option = await _smart_match_option(user_input, options)
 
+        # Step 3: if still no match, check if user is expressing contact intent
+        # and there's a "get in touch" style option available (handles voice input variations)
+        if not matched_option:
+            contact_option = next(
+                (o for o in options if any(kw in o.lower() for kw in ("get in touch", "contact", "reach out", "interested"))),
+                None,
+            )
+            if contact_option:
+                exit_match = await _match_exit_intent(user_input, [contact_option])
+                if exit_match:
+                    matched_option = exit_match
+
         if matched_option:
             opt_cfg = option_config.get(matched_option, {})
             mode = opt_cfg.get("mode", "transition")
@@ -395,18 +407,27 @@ async def _match_exit_intent(user_input: str, exit_options: list[str]) -> str | 
         "get in touch", "in touch", "contact", "reach out", "call me", "schedule",
         "consultation", "talk to", "speak to", "connect", "callback", "sign up",
         "interested", "let's do it", "yes please", "sounds good", "let's go",
+        "would like to", "i'd like to", "i want to", "sign me up", "book",
+        "meet", "demo", "chat with", "speak with",
+        "happy to", "go ahead", "sure", "ok contact", "please contact",
+        "pls contact", "yes contact", "book a call", "set up a call",
     ]
     lowered = user_input.lower()
     if any(kw in lowered for kw in _CONTACT_KEYWORDS):
         return exit_options[0]  # only one exit option in LLM states
     # Fallback: quick LLM intent check
-    options_list = "\n".join(f"- {opt}" for opt in exit_options)
     prompt = (
-        f"A user is chatting with a marketing assistant. At any point they can exit by expressing "
-        f"interest in being contacted. The exit options are:\n{options_list}\n\n"
+        f"A user is chatting with an AI marketing assistant about avatar video services. "
+        f"Your job is to detect if the user wants to be contacted by a human, get in touch, "
+        f"schedule a call, or express readiness to move forward — regardless of how they phrase it.\n\n"
+        f"Examples that should return YES:\n"
+        f"- \"ok\", \"sure\", \"yeah\", \"sounds good\", \"yes please\"\n"
+        f"- \"I'm happy to get in touch\", \"I would like to get in touch\"\n"
+        f"- \"yeah pls contact me\", \"please reach out\", \"let's do it\"\n"
+        f"- \"I want to learn more\", \"I'm interested\", \"sign me up\"\n"
+        f"- \"ok contact me\", \"go ahead\", \"book a call\"\n\n"
         f"User said: \"{user_input}\"\n\n"
-        f"Does the user want to be contacted / get in touch / schedule a consultation? "
-        f"Answer YES or NO only."
+        f"Does the user want to be contacted or move forward? Answer YES or NO only."
     )
     try:
         response = await client.messages.create(
