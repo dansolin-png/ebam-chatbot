@@ -1,0 +1,15 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo "Packaging Lambda deployment..."
+      - cd server
+      - zip -r /tmp/ebam-deploy.zip . -x "venv/*" -x "*.pyc" -x "*/__pycache__/*" -x "__pycache__/*"
+      - zip -d /tmp/ebam-deploy.zip ".env" "ebam.db" "lambda.zip" || true
+      - echo "Uploading to S3..."
+      - aws s3 cp /tmp/ebam-deploy.zip s3://ebam-compliance-leads/deployments/ebam-deploy.zip --region us-east-1 --no-progress
+      - echo "Updating Lambda function code..."
+      - aws lambda update-function-code --function-name ebam-api --s3-bucket ebam-compliance-leads --s3-key deployments/ebam-deploy.zip --region us-east-1
+      - aws lambda wait function-updated --function-name ebam-api --region us-east-1
+      - echo "Lambda deployment complete."
