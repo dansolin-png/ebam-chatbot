@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - cd web && npm ci
+  build:
+    commands:
+      - npm run build
+      - npm run build:widget
+      - cp dist-widget/widget.js dist/widget.js
+      - echo "Frontend built"
+  post_build:
+    commands:
+      - cd dist
+      - zip -r /tmp/ebam-frontend.zip .
+      - |
+        DEPLOY=$(aws amplify create-deployment --app-id d142ap2pr34amq --branch-name main --region us-east-1)
+        JOB_ID=$(echo $DEPLOY | python3 -c "import sys,json; print(json.load(sys.stdin)['jobId'])")
+        UPLOAD_URL=$(echo $DEPLOY | python3 -c "import sys,json; print(json.load(sys.stdin)['zipUploadUrl'])")
+        curl -s -X PUT -H "Content-Type: application/zip" --upload-file /tmp/ebam-frontend.zip "$UPLOAD_URL"
+        aws amplify start-deployment --app-id d142ap2pr34amq --branch-name main --job-id $JOB_ID --region us-east-1
+        echo "Amplify deployment started: job $JOB_ID"
