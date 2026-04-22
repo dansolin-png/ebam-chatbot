@@ -22,6 +22,7 @@
 15. [Local Development](#15-local-development)
 16. [Environment Variables](#16-environment-variables)
 17. [CloudTrail Audit Logging](#17-cloudtrail-audit-logging)
+18. [CI/CD Pipelines](#18-cicd-pipelines)
 
 ---
 
@@ -1049,6 +1050,77 @@ aws cloudtrail validate-log-file-integrity \
   --start-time 2026-01-01T00:00:00Z \
   --profile ebam --region us-east-1
 ```
+
+---
+
+## 18. CI/CD Pipelines
+
+Both pipelines are connected to the `main` branch of `github.com/dansolin-png/ebam-chatbot` via an AWS CodeStar connection (GitHub App). **Auto-trigger is disabled** — deployments must be started manually.
+
+### Backend Pipeline — `ebam-backend-pipeline`
+
+| Setting | Value |
+|---|---|
+| Pipeline | `ebam-backend-pipeline` |
+| Source | GitHub `main` branch (CodeStar connection `ebam-github-v2`) |
+| Build project | `ebam-backend-build` |
+| Buildspec | `buildspec.yml` (repo root) |
+| Deploy target | Lambda function `ebam-api` (via S3 upload) |
+| IAM role | `ebam-codepipeline-role` (pipeline) / `ebam-codebuild-role` (build) |
+
+**What it does:**
+1. Pulls latest `main` from GitHub
+2. Zips `server/` directory (including `package/` with all Python deps)
+3. Strips `.env` and `ebam.db` from the zip
+4. Uploads to `s3://ebam-compliance-leads/deployments/ebam-deploy.zip`
+5. Calls `lambda:UpdateFunctionCode` and waits for update to complete
+
+**To trigger manually:**
+```bash
+# AWS Console: CodePipeline → ebam-backend-pipeline → Release change
+# Or via CLI:
+aws codepipeline start-pipeline-execution --name ebam-backend-pipeline --profile ebam --region us-east-1
+```
+
+---
+
+### Frontend Pipeline — `ebam-frontend-pipeline`
+
+| Setting | Value |
+|---|---|
+| Pipeline | `ebam-frontend-pipeline` |
+| Source | GitHub `main` branch (CodeStar connection `ebam-github-v2`) |
+| Build project | `ebam-frontend-build` |
+| Buildspec | `buildspec-frontend.yml` (repo root) |
+| Deploy target | Amplify app `d142ap2pr34amq` branch `main` |
+| IAM role | `ebam-codepipeline-role` (pipeline) / `ebam-codebuild-role` (build) |
+
+**What it does:**
+1. Pulls latest `main` from GitHub
+2. Runs `npm ci` + `npm run build` (admin SPA → `dist/`)
+3. Runs `npm run build:widget` (embeddable widget → `dist-widget/widget.js`)
+4. Copies `dist-widget/widget.js` → `dist/widget.js`
+5. Zips `dist/` contents and uploads to Amplify via presigned URL
+6. Calls `amplify start-deployment` to go live
+
+**To trigger manually:**
+```bash
+# AWS Console: CodePipeline → ebam-frontend-pipeline → Release change
+# Or via CLI:
+aws codepipeline start-pipeline-execution --name ebam-frontend-pipeline --profile ebam --region us-east-1
+```
+
+---
+
+### AWS Console Links
+
+| Resource | Console URL |
+|---|---|
+| Backend pipeline | https://us-east-1.console.aws.amazon.com/codesuite/codepipeline/pipelines/ebam-backend-pipeline/view |
+| Frontend pipeline | https://us-east-1.console.aws.amazon.com/codesuite/codepipeline/pipelines/ebam-frontend-pipeline/view |
+| Backend build logs | https://us-east-1.console.aws.amazon.com/codesuite/codebuild/projects/ebam-backend-build/history |
+| Frontend build logs | https://us-east-1.console.aws.amazon.com/codesuite/codebuild/projects/ebam-frontend-build/history |
+| GitHub connection | https://us-east-1.console.aws.amazon.com/codesuite/settings/connections |
 
 ---
 

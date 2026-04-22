@@ -4,7 +4,7 @@ phases:
   build:
     commands:
       - echo "Packaging Lambda deployment..."
-      - cd server
+      - cd $CODEBUILD_SRC_DIR/server
       - zip -r /tmp/ebam-deploy.zip . -x "venv/*" -x "*.pyc" -x "*/__pycache__/*" -x "__pycache__/*"
       - zip -d /tmp/ebam-deploy.zip ".env" "ebam.db" "lambda.zip" || true
       - echo "Uploading to S3..."

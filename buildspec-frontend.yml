@@ -5,16 +5,17 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - cd web && npm ci
+      - cd $CODEBUILD_SRC_DIR/web && npm ci
   build:
     commands:
+      - cd $CODEBUILD_SRC_DIR/web
       - npm run build
       - npm run build:widget
       - cp dist-widget/widget.js dist/widget.js
       - echo "Frontend built"
   post_build:
     commands:
-      - cd dist
+      - cd $CODEBUILD_SRC_DIR/web/dist
       - zip -r /tmp/ebam-frontend.zip .
       - |
         DEPLOY=$(aws amplify create-deployment --app-id d142ap2pr34amq --branch-name main --region us-east-1)
