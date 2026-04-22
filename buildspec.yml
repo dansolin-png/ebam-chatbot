@@ -5,6 +5,9 @@ phases:
     runtime-versions:
       python: 3.12
     commands:
+      - echo "Cleaning server/package/ to avoid app source file contamination..."
+      - rm -rf $CODEBUILD_SRC_DIR/server/package/
+      - mkdir -p $CODEBUILD_SRC_DIR/server/package/
       - echo "Installing Python dependencies into server/package/..."
       - pip install -r $CODEBUILD_SRC_DIR/server/requirements.txt -t $CODEBUILD_SRC_DIR/server/package/ --quiet
   build:
