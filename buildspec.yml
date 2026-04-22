@@ -1,6 +1,12 @@
 version: 0.2
 
 phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo "Installing Python dependencies into server/package/..."
+      - pip install -r $CODEBUILD_SRC_DIR/server/requirements.txt -t $CODEBUILD_SRC_DIR/server/package/ --quiet
   build:
     commands:
       - echo "Packaging Lambda deployment..."
