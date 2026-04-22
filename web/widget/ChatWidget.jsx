@@ -36,6 +36,7 @@ export default function ChatWidget() {
   const [started, setStarted]     = useState(false)
   const [isListening, setIsListening] = useState(false)
   const bottomRef = useRef(null)
+  const bodyRef   = useRef(null)
   const inputRef  = useRef(null)
   const recognitionRef = useRef(null)
 
@@ -60,7 +61,12 @@ export default function ChatWidget() {
   }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messages.length <= 1) {
+      // Only greeting — scroll body to top so full message is visible
+      bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, isTyping])
 
   useEffect(() => {
@@ -158,7 +164,7 @@ export default function ChatWidget() {
           )}
 
           {/* Messages */}
-          <div style={s.body}>
+          <div ref={bodyRef} style={s.body}>
             {messages.map((msg, i) =>
               msg.role === 'greeting'
                 ? <GreetingMsg key={i} content={msg.content} selected={!!audience} onSelect={handleSelectAudience} config={config} />
@@ -254,7 +260,7 @@ function GreetingMsg({ content, selected, onSelect, config }) {
           <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
             {[['advisor','💼','Financial Advisor'],['cpa','🧾','CPA']].map(([type, icon, label]) => (
               <button key={type} style={s.audBtn} onClick={() => onSelect(type)}>
-                <span style={{ display: 'block', fontSize: '1.3rem', marginBottom: 3 }}>{icon}</span>
+                <span style={{ display: 'block', fontSize: '1rem', marginBottom: 2 }}>{icon}</span>
                 {label}
               </button>
             ))}
@@ -305,13 +311,13 @@ const s = {
   statusDot:  { fontSize:'0.7rem', color:'#5dba8a', fontWeight:500, display:'flex', alignItems:'center', gap:5 },
   restartBtn: { background:'none', border:'none', color:'rgba(201,168,76,0.5)', fontSize:'1rem', cursor:'pointer', padding:0, lineHeight:1 },
   disclaimer: { background:'rgba(201,168,76,0.08)', borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', padding:'8px 16px', fontSize:'0.72rem', color:'rgba(248,246,241,0.55)', lineHeight:1.5, textAlign:'center' },
-  body:       { background:NAVY_MID, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', flex:1, overflowY:'auto', padding:'22px 22px 10px', display:'flex', flexDirection:'column', gap:14, maxHeight:400 },
+  body:       { background:NAVY_MID, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', flex:1, overflowY:'auto', padding:'22px 22px 10px', display:'flex', flexDirection:'column', gap:14, minHeight:0 },
   row:        { display:'flex', gap:9, maxWidth:'88%' },
   avAI:       { width:30, height:30, borderRadius:'50%', background:`linear-gradient(135deg,${GOLD},${GOLD_LT})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0, marginTop:3, overflow:'hidden' },
   avUser:     { background:BUBBLE_US, border:'1px solid rgba(201,168,76,0.2)', color:GOLD, fontSize:'9px', fontWeight:700 },
   bubAI:      { background:BUBBLE_AI, border:'1px solid rgba(201,168,76,0.12)', borderRadius:'4px 14px 14px 14px', padding:'11px 15px', fontSize:'0.88rem', lineHeight:1.65, color:'rgba(248,246,241,0.92)', fontWeight:300 },
   bubUser:    { background:BUBBLE_US, border:'1px solid rgba(201,168,76,0.2)', borderRadius:'14px 4px 14px 14px', padding:'11px 15px', fontSize:'0.88rem', lineHeight:1.65, color:'rgba(248,246,241,0.92)', fontWeight:300 },
-  audBtn:     { flex:1, padding:'11px 14px', borderRadius:10, border:'1px solid rgba(201,168,76,0.4)', background:'rgba(201,168,76,0.06)', color:WHITE, fontSize:'0.87rem', fontWeight:500, cursor:'pointer', textAlign:'center', transition:'all .2s' },
+  audBtn:     { flex:1, padding:'7px 10px', borderRadius:10, border:'1px solid rgba(201,168,76,0.4)', background:'rgba(201,168,76,0.06)', color:WHITE, fontSize:'0.8rem', fontWeight:500, cursor:'pointer', textAlign:'center', transition:'all .2s' },
   typing:     { display:'flex', alignItems:'center', gap:5, padding:'11px 15px', background:BUBBLE_AI, border:'1px solid rgba(201,168,76,0.12)', borderRadius:'4px 14px 14px 14px' },
   dot:        { width:7, height:7, background:GOLD, borderRadius:'50%', opacity:.4, display:'inline-block', animation:'ebam-t 1.2s ease-in-out infinite' },
   qrs:        { display:'flex', flexWrap:'wrap', gap:7, marginTop:2 },
