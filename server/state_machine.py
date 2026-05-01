@@ -308,13 +308,27 @@ async def process_message(
     elif state_type == "llm":
         exit_options = state.get("options", [])
         exit_transitions = state.get("transitions", {})
-        if exit_options:
-            matched_exit = _match_option(user_input, exit_options)
+        # Check transitions even when options list is empty (buttons sent directly by widget)
+        transition_keys = list(exit_transitions.keys()) if exit_transitions else []
+        all_exit_options = list(dict.fromkeys(exit_options + transition_keys))
+        if all_exit_options:
+            matched_exit = _match_option(user_input, all_exit_options)
             if not matched_exit:
-                matched_exit = await _match_exit_intent(user_input, exit_options)
+                matched_exit = await _match_exit_intent(user_input, all_exit_options)
             if matched_exit:
                 next_state_id = exit_transitions.get(matched_exit, state.get("fallback", "start"))
                 next_state = get_state(flow, next_state_id)
+                # Handoff state requires special processing — delegate to its own handler
+                if next_state and next_state.get("type") == "handoff":
+                    return await process_message(
+                        flow=flow,
+                        current_state_id=next_state_id,
+                        previous_state_id=current_state_id,
+                        user_input=user_input,
+                        collected_data=collected_data,
+                        message_history=message_history,
+                        system_prompt=system_prompt,
+                    )
                 return {
                     "next_state_id": next_state_id,
                     "bot_message": _interpolate(next_state.get("message", ""), collected_data),
@@ -348,11 +362,29 @@ async def process_message(
             "bot_message": bot_message + (
                 ("\n\n" + next_state.get("message", "")) if (next_state and next_state.get("message")) else ""
             ),
-            # Stay in loop → show the exit options; otherwise show next state options
-            "bot_options": exit_options if is_loop else (next_state.get("options") if next_state else None),
+            # Stay in loop → show options if any; otherwise show next state options
+            "bot_options": (exit_options or None) if is_loop else (next_state.get("options") if next_state else None),
             "captured": {},
             "is_end": False if is_loop else (next_state.get("type") == "end" if next_state else False),
             "user_type": None if is_loop else (next_state.get("user_type") if next_state else None),
+        }
+
+    # --- HANDOFF state — always enqueue and let the widget's 60s timeout handle no-agent ---
+    elif state_type == "handoff":
+        import agent_store as ags
+        ags.enqueue_session(
+            session_id=collected_data.get("__session_id__", "unknown"),
+            user_name=collected_data.get("name", ""),
+            user_email=collected_data.get("email", ""),
+            user_type=collected_data.get("user_type", ""),
+        )
+        return {
+            "next_state_id": "handoff",
+            "bot_message": _interpolate(state.get("message", "Connecting you with a live agent..."), collected_data),
+            "bot_options": None,
+            "captured": {},
+            "is_end": False,
+            "is_handoff": True,
         }
 
     # --- END state (should not receive input, but handle gracefully) ---

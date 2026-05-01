@@ -49,3 +49,21 @@ export async function deleteUser(username) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+export async function getMe() {
+  const res = await fetch(API_BASE + '/api/auth/me', { headers: authHeaders() })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function updateProfile(display_name) {
+  const res = await fetch(API_BASE + '/api/auth/me', {
+    method: 'PUT', headers: authHeaders(),
+    body: JSON.stringify({ display_name }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  return res.json()
+}

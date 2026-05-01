@@ -2,28 +2,42 @@ import { useState, useEffect, useRef } from 'react'
 import { startSession, sendMessage, getChatConfig } from '../api/chat.js'
 import { renderMessageHtml } from '../utils/renderMessage.js'
 
+const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000'
+
 /*
   Conversation flow:
   1. Show greeting + audience buttons (Financial Advisor / CPA)
   2. User selects audience → POST /chat/start → returns first flow state message + options
   3. Every message → POST /chat/message → state machine returns next message + options
   4. Flow ends when is_end = true (lead captured)
+  5. If is_handoff = true, switch to WebSocket mode for live agent chat
 */
 
 export default function ChatWidget({ defaultOpen = false }) {
   const [open, setOpen]             = useState(defaultOpen)
-  const [config, setConfig]         = useState(null)    // CHAT_CONFIG from backend
+  const [config, setConfig]         = useState(null)
   const [sessionId, setSessionId]   = useState(null)
-  const [audience, setAudience]     = useState(null)    // 'advisor' | 'cpa'
-  const [messages, setMessages]     = useState([])      // { role, content }
+  const [sessionState, setSessionState] = useState(null)
+  const [audience, setAudience]     = useState(null)
+  const [messages, setMessages]     = useState([])
   const [quickReplies, setQuickReplies] = useState(null)
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping]     = useState(false)
   const [started, setStarted]       = useState(false)
   const [isListening, setIsListening] = useState(false)
-  const bottomRef = useRef(null)
-  const inputRef  = useRef(null)
+
+  // Human handoff state
+  const [mode, setMode]             = useState('bot')  // 'bot' | 'waiting' | 'human'
+  const [agentName, setAgentName]   = useState('')
+  const [agentTyping, setAgentTyping] = useState(false)
+
+  const bottomRef    = useRef(null)
+  const inputRef     = useRef(null)
   const recognitionRef = useRef(null)
+  const wsRef        = useRef(null)
+  const sessionIdRef = useRef(null)
+
+  useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
 
   const voiceSupported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
@@ -55,6 +69,9 @@ export default function ChatWidget({ defaultOpen = false }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
+  // Cleanup WebSocket on unmount
+  useEffect(() => () => wsRef.current?.close(), [])
+
   // Load config and show greeting when widget first opens
   useEffect(() => {
     if (open && !started) {
@@ -62,6 +79,33 @@ export default function ChatWidget({ defaultOpen = false }) {
       init()
     }
   }, [open])
+
+  function connectWebSocket(sid) {
+    const ws = new WebSocket(`${WS_BASE}/ws?role=user&session_id=${sid}`)
+    wsRef.current = ws
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      if (data.type === 'agent_joined') {
+        setMode('human')
+        setAgentName(data.agent_name)
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'system', content: `${data.agent_name} has joined the chat.` }])
+      } else if (data.type === 'message' && data.from === 'agent') {
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'agent', content: data.text, senderName: data.sender_name }])
+      } else if (data.type === 'typing') {
+        setAgentTyping(data.is_typing)
+      } else if (data.type === 'agent_left') {
+        setMode('bot')
+        setAgentName('')
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'system', content: data.message || 'The agent has left the chat.' }])
+        ws.close()
+        wsRef.current = null
+      }
+    }
+  }
 
   async function init() {
     try {
@@ -81,6 +125,7 @@ export default function ChatWidget({ defaultOpen = false }) {
     try {
       const res = await startSession(type)
       setSessionId(res.session_id)
+      setSessionState(res.session_state || null)
       setMessages(prev => [
         ...prev,
         { role: 'user', content: type === 'advisor' ? 'Financial Advisor' : 'CPA' },
@@ -112,11 +157,28 @@ export default function ChatWidget({ defaultOpen = false }) {
   }
 
   async function submitMessage(text) {
+    if (mode === 'human') {
+      setMessages(prev => [...prev, { role: 'user', content: text }])
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'sendMessage', text, session_id: sessionIdRef.current }))
+      }
+      return
+    }
+
     setMessages(prev => [...prev, { role: 'user', content: text }])
     setQuickReplies(null)
     setIsTyping(true)
     try {
-      const res = await sendMessage(sessionId, text)
+      const res = await sendMessage(sessionId, text, sessionState)
+      if (res.session_state !== undefined) setSessionState(res.session_state)
+
+      if (res.is_handoff) {
+        addBotMessage(res.message)
+        setMode('waiting')
+        connectWebSocket(sessionId)
+        return
+      }
+
       addBotMessage(res.message)
       if (!res.is_end && res.options?.length) {
         setQuickReplies(res.options)
@@ -129,14 +191,19 @@ export default function ChatWidget({ defaultOpen = false }) {
   }
 
   function handleRestart() {
+    wsRef.current?.close()
+    wsRef.current = null
     setMessages([])
     setQuickReplies(null)
     setAudience(null)
     setSessionId(null)
+    setSessionState(null)
     setInputValue('')
     setIsTyping(false)
     setStarted(false)
     setConfig(null)
+    setMode('bot')
+    setAgentName('')
     setTimeout(() => {
       setStarted(true)
       init()
@@ -151,16 +218,20 @@ export default function ChatWidget({ defaultOpen = false }) {
 
           {/* Header */}
           <div style={s.header}>
-            <div style={s.avatarIcon}>
-              {config?.bot_icon_url
-                ? <img src={config.bot_icon_url} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
-                : (config?.bot_icon || '🎬')}
+            <div style={{ ...s.avatarIcon, ...(mode === 'human' ? { background: 'linear-gradient(135deg,#2e7d52,#4caf7d)' } : {}) }}>
+              {mode === 'human'
+                ? <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{(agentName || 'A').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()}</span>
+                : config?.bot_icon_url
+                  ? <img src={config.bot_icon_url} alt="bot" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                  : (config?.bot_icon || '🎬')}
             </div>
             <div style={s.headerText}>
               <div style={s.headerTitle}>{config?.bot_name || 'Avatar Marketing Assistant'}</div>
-              <div style={s.headerSub}>{config?.bot_subtitle || 'Evidence Based Advisor Marketing'}</div>
+              <div style={s.headerSub}>{mode === 'human' ? `Live Agent: ${agentName}` : (config?.bot_subtitle || 'Evidence Based Advisor Marketing')}</div>
             </div>
-            <div style={s.statusDot}>Online</div>
+            <div style={{ ...s.statusDot, color: mode === 'human' ? '#f59e0b' : mode === 'waiting' ? '#94a3b8' : '#5dba8a' }}>
+              {mode === 'human' ? 'Live Agent' : mode === 'waiting' ? 'Finding agent...' : 'Online'}
+            </div>
           </div>
 
           {/* Disclaimer banner */}
@@ -188,13 +259,29 @@ export default function ChatWidget({ defaultOpen = false }) {
                   />
                 )
               }
+              if (msg.role === 'system') {
+                return <SystemMessage key={i} content={msg.content} />
+              }
+              if (msg.role === 'agent') {
+                return <AgentMessage key={i} content={msg.content} senderName={msg.senderName || agentName} />
+              }
               return (
                 <ChatMessage key={i} role={msg.role} content={msg.content} botAvatar={botAvatar} isImgUrl={isImgUrl} />
               )
             })}
 
-            {/* Typing indicator */}
-            {isTyping && (
+            {/* Waiting for agent */}
+            {mode === 'waiting' && (
+              <div style={{ ...s.messageRow, alignSelf: 'flex-start' }}>
+                <div style={{ ...s.avatarSmall, background: 'rgba(201,168,76,0.12)', fontSize: 16 }}>⏳</div>
+                <div style={{ ...s.bubbleAI, color: 'rgba(248,246,241,0.5)', fontStyle: 'italic' }}>
+                  Looking for an available agent...
+                </div>
+              </div>
+            )}
+
+            {/* Bot typing indicator */}
+            {isTyping && mode === 'bot' && (
               <div style={{ ...s.messageRow, alignSelf: 'flex-start' }}>
                 <div style={s.avatarSmall}>
                   {config?.bot_icon_url
@@ -209,8 +296,22 @@ export default function ChatWidget({ defaultOpen = false }) {
               </div>
             )}
 
-            {/* Quick replies */}
-            {!isTyping && quickReplies && (
+            {/* Agent typing indicator */}
+            {agentTyping && mode === 'human' && (
+              <div style={{ ...s.messageRow, alignSelf: 'flex-start' }}>
+                <div style={{ ...s.avatarSmall, background: 'linear-gradient(135deg,#2e7d52,#4caf7d)', color: '#fff', fontSize: 11, fontWeight: 700 }}>
+                  {(agentName || 'A').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()}
+                </div>
+                <div style={s.typingIndicator}>
+                  <span style={{ ...s.typingDot, animationDelay: '0ms', background: '#4caf7d' }} />
+                  <span style={{ ...s.typingDot, animationDelay: '200ms', background: '#4caf7d' }} />
+                  <span style={{ ...s.typingDot, animationDelay: '400ms', background: '#4caf7d' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Quick replies (bot mode only) */}
+            {!isTyping && quickReplies && mode === 'bot' && (
               <div style={s.quickReplies}>
                 {quickReplies.map((qr, i) => (
                   <button
@@ -241,13 +342,16 @@ export default function ChatWidget({ defaultOpen = false }) {
               ref={inputRef}
               style={s.inputArea}
               value={inputValue}
-              placeholder="Type your question here..."
+              placeholder={mode === 'waiting' ? 'Waiting for agent...' : mode === 'human' ? 'Message agent...' : 'Type your question here...'}
               rows={1}
-              disabled={!audience || isTyping}
+              disabled={!audience || isTyping || mode === 'waiting'}
               onChange={e => {
                 setInputValue(e.target.value)
                 e.target.style.height = 'auto'
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                if (mode === 'human' && wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'typing', is_typing: true, session_id: sessionIdRef.current }))
+                }
               }}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -365,6 +469,35 @@ function GreetingMessage({ content, audienceSelected, onSelect, botAvatar, isImg
             </button>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// System event message (agent joined / left)
+// ---------------------------------------------------------------------------
+function SystemMessage({ content }) {
+  return (
+    <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'rgba(201,168,76,0.6)', padding: '4px 0', animation: 'ebam-fadein 0.3s ease both' }}>
+      — {content} —
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Agent message (from live human agent)
+// ---------------------------------------------------------------------------
+function AgentMessage({ content, senderName }) {
+  const name = senderName || 'Agent'
+  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  return (
+    <div style={{ display: 'flex', gap: 10, maxWidth: '88%', alignSelf: 'flex-start', animation: 'ebam-fadein 0.3s ease both' }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#2e7d52,#4caf7d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700, flexShrink: 0, marginTop: 3 }}>
+        {initials}
+      </div>
+      <div style={{ background: '#192e22', border: '1px solid rgba(76,175,125,0.2)', borderTopLeftRadius: 4, borderTopRightRadius: 15, borderBottomLeftRadius: 15, borderBottomRightRadius: 15, padding: '13px 17px', fontSize: '0.91rem', lineHeight: 1.65, color: 'rgba(248,246,241,0.92)', fontWeight: 300 }}>
+        {content}
       </div>
     </div>
   )

@@ -14,10 +14,10 @@ export default function LoginPage({ onLogin }) {
     setError('')
     setLoading(true)
     try {
-      const { token, role } = await loginApi(username.trim(), password)
-      localStorage.setItem('ebam_token', token)
-      localStorage.setItem('ebam_role', role)
-      onLogin(token, role)
+      const data = await loginApi(username.trim(), password)
+      localStorage.setItem('ebam_token', data.token)
+      localStorage.setItem('ebam_role', data.role)
+      onLogin(data.token, data.role, data.username, data.display_name)
     } catch {
       setError('Invalid username or password.')
     } finally {

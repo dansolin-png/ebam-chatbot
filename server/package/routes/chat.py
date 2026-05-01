@@ -169,13 +169,16 @@ async def send_message(req: MessageRequest, request: Request):
 
     message_history.append({"role": "user", "content": req.user_message})
 
-    # Run state machine
+    # Run state machine — inject session_id so handoff state can enqueue
+    _collected = dict(session.get("collected_data") or {})
+    _collected["__session_id__"] = req.session_id
+    _collected["user_type"] = session.get("user_type", "")
     result = await process_message(
         flow,
         session["current_state"],
         session.get("previous_state"),
         req.user_message,
-        dict(session.get("collected_data") or {}),
+        _collected,
         system_prompt=system_prompt,
         message_history=message_history,
         default_llm_prompt=default_llm_prompt,
@@ -194,7 +197,7 @@ async def send_message(req: MessageRequest, request: Request):
 
     # Persist to DB only when BOTH name AND email are captured for the first time
     if has_lead and not in_db:
-        db.create_session(req.session_id, session["user_type"])
+        db.create_session(req.session_id, session["user_type"], collected_data=new_data)
         in_db = True
 
     if in_db:
@@ -224,7 +227,13 @@ async def send_message(req: MessageRequest, request: Request):
                             "is_complete": True}
             await _store_compliance(full_session, req.session_id, "complete")
 
-        return_state = None  # session is now in DB, client can stop sending state
+        return_state = {
+            "current_state":  result["next_state_id"],
+            "previous_state": session["current_state"],
+            "collected_data": new_data,
+            "user_type":      session["user_type"],
+            "is_complete":    result["is_end"],
+        }
     else:
         # Not yet persisted — build updated state for client to hold
         message_history.append({"role": "assistant", "content": result["bot_message"]})
@@ -242,6 +251,7 @@ async def send_message(req: MessageRequest, request: Request):
         "message":       result["bot_message"],
         "options":       result.get("bot_options"),
         "is_end":        result["is_end"],
+        "is_handoff":    result.get("is_handoff", False),
         "session_state": return_state,
     }
 

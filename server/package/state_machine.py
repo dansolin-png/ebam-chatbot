@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
+import secrets_client as sc
+
 GENERAL_SYSTEM_PROMPT = (
     "You are a professional assistant for Evidence Based Advisor Marketing. "
     "Be empathetic, concise, and always guide the conversation positively. "
@@ -20,7 +22,7 @@ DEFAULT_OPTION_LLM_PROMPT = (
 
 load_dotenv()
 
-client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = anthropic.AsyncAnthropic(api_key=sc.get("ANTHROPIC_API_KEY"))
 
 DEFAULT_FLOW_PATH = Path(__file__).parent / "flows" / "default_flow.json"
 AUDIENCE_FLOW_PATHS = {
@@ -147,6 +149,18 @@ async def process_message(
         if not matched_option:
             matched_option = await _smart_match_option(user_input, options)
 
+        # Step 3: if still no match, check if user is expressing contact intent
+        # and there's a "get in touch" style option available (handles voice input variations)
+        if not matched_option:
+            contact_option = next(
+                (o for o in options if any(kw in o.lower() for kw in ("get in touch", "contact", "reach out", "interested"))),
+                None,
+            )
+            if contact_option:
+                exit_match = await _match_exit_intent(user_input, [contact_option])
+                if exit_match:
+                    matched_option = exit_match
+
         if matched_option:
             opt_cfg = option_config.get(matched_option, {})
             mode = opt_cfg.get("mode", "transition")
@@ -258,6 +272,26 @@ async def process_message(
                 "user_type": None,
             }
 
+        # Email validation
+        if capture_field == "email" and value:
+            import re
+            # Normalise: lowercase and strip whitespace
+            value = value.strip().lower()
+
+            # Auto-correct doubled letters in the TLD (e.g. .coom → .com, .nett → .net)
+            value = re.sub(r'\.([a-z])\1+$', lambda m: '.' + m.group(1), value)
+
+            # Require: local@domain.tld where TLD is 2–6 alpha chars
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[a-z]{2,6}$", value):
+                return {
+                    "next_state_id": current_state_id,
+                    "bot_message": "That doesn't look like a valid email address. Could you double-check and try again?",
+                    "bot_options": None,
+                    "captured": {},
+                    "is_end": False,
+                    "user_type": None,
+                }
+
         captured = {capture_field: value} if capture_field and value else {}
         next_state = get_state(flow, next_state_id)
         merged = {**collected_data, **captured}
@@ -272,16 +306,29 @@ async def process_message(
 
     # --- LLM state ---
     elif state_type == "llm":
-        # Check if the user input matches an exit option (e.g. "Ready to get in touch")
         exit_options = state.get("options", [])
         exit_transitions = state.get("transitions", {})
-        if exit_options:
-            matched_exit = _match_option(user_input, exit_options)
+        # Check transitions even when options list is empty (buttons sent directly by widget)
+        transition_keys = list(exit_transitions.keys()) if exit_transitions else []
+        all_exit_options = list(dict.fromkeys(exit_options + transition_keys))
+        if all_exit_options:
+            matched_exit = _match_option(user_input, all_exit_options)
             if not matched_exit:
-                matched_exit = await _smart_match_option(user_input, exit_options)
+                matched_exit = await _match_exit_intent(user_input, all_exit_options)
             if matched_exit:
                 next_state_id = exit_transitions.get(matched_exit, state.get("fallback", "start"))
                 next_state = get_state(flow, next_state_id)
+                # Handoff state requires special processing — delegate to its own handler
+                if next_state and next_state.get("type") == "handoff":
+                    return await process_message(
+                        flow=flow,
+                        current_state_id=next_state_id,
+                        previous_state_id=current_state_id,
+                        user_input=user_input,
+                        collected_data=collected_data,
+                        message_history=message_history,
+                        system_prompt=system_prompt,
+                    )
                 return {
                     "next_state_id": next_state_id,
                     "bot_message": _interpolate(next_state.get("message", ""), collected_data),
@@ -315,11 +362,29 @@ async def process_message(
             "bot_message": bot_message + (
                 ("\n\n" + next_state.get("message", "")) if (next_state and next_state.get("message")) else ""
             ),
-            # Stay in loop → show the exit options; otherwise show next state options
-            "bot_options": exit_options if is_loop else (next_state.get("options") if next_state else None),
+            # Stay in loop → show options if any; otherwise show next state options
+            "bot_options": (exit_options or None) if is_loop else (next_state.get("options") if next_state else None),
             "captured": {},
             "is_end": False if is_loop else (next_state.get("type") == "end" if next_state else False),
             "user_type": None if is_loop else (next_state.get("user_type") if next_state else None),
+        }
+
+    # --- HANDOFF state — always enqueue and let the widget's 60s timeout handle no-agent ---
+    elif state_type == "handoff":
+        import agent_store as ags
+        ags.enqueue_session(
+            session_id=collected_data.get("__session_id__", "unknown"),
+            user_name=collected_data.get("name", ""),
+            user_email=collected_data.get("email", ""),
+            user_type=collected_data.get("user_type", ""),
+        )
+        return {
+            "next_state_id": "handoff",
+            "bot_message": _interpolate(state.get("message", "Connecting you with a live agent..."), collected_data),
+            "bot_options": None,
+            "captured": {},
+            "is_end": False,
+            "is_handoff": True,
         }
 
     # --- END state (should not receive input, but handle gracefully) ---
@@ -362,6 +427,52 @@ def _match_option(user_input: str, options: list[str]) -> str | None:
     return None
 
 
+async def _match_exit_intent(user_input: str, exit_options: list[str]) -> str | None:
+    """
+    Detect if the user wants to exit the LLM conversation (e.g. get in touch, contact, schedule).
+    Much simpler/more lenient than _smart_match_option — only used for LLM state exit options.
+    """
+    if not exit_options:
+        return None
+    # Fast keyword check first — covers the common cases without an LLM call
+    _CONTACT_KEYWORDS = [
+        "get in touch", "in touch", "contact", "reach out", "call me", "schedule",
+        "consultation", "talk to", "speak to", "connect", "callback", "sign up",
+        "interested", "let's do it", "yes please", "sounds good", "let's go",
+        "would like to", "i'd like to", "i want to", "sign me up", "book",
+        "meet", "demo", "chat with", "speak with",
+        "happy to", "go ahead", "sure", "ok contact", "please contact",
+        "pls contact", "yes contact", "book a call", "set up a call",
+    ]
+    lowered = user_input.lower()
+    if any(kw in lowered for kw in _CONTACT_KEYWORDS):
+        return exit_options[0]  # only one exit option in LLM states
+    # Fallback: quick LLM intent check
+    prompt = (
+        f"A user is chatting with an AI marketing assistant about avatar video services. "
+        f"Your job is to detect if the user wants to be contacted by a human, get in touch, "
+        f"schedule a call, or express readiness to move forward — regardless of how they phrase it.\n\n"
+        f"Examples that should return YES:\n"
+        f"- \"ok\", \"sure\", \"yeah\", \"sounds good\", \"yes please\"\n"
+        f"- \"I'm happy to get in touch\", \"I would like to get in touch\"\n"
+        f"- \"yeah pls contact me\", \"please reach out\", \"let's do it\"\n"
+        f"- \"I want to learn more\", \"I'm interested\", \"sign me up\"\n"
+        f"- \"ok contact me\", \"go ahead\", \"book a call\"\n\n"
+        f"User said: \"{user_input}\"\n\n"
+        f"Does the user want to be contacted or move forward? Answer YES or NO only."
+    )
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = response.content[0].text.strip().upper()
+        return exit_options[0] if result.startswith("YES") else None
+    except Exception:
+        return None
+
+
 async def _smart_match_option(user_input: str, options: list[str]) -> str | None:
     """
     Use LLM to map free-text user input to the closest option.
@@ -385,8 +496,13 @@ async def _smart_match_option(user_input: str, options: list[str]) -> str | None
         f"  'half a million' → '$500K – $1M'\n"
         f"  'retirement' → 'Retirement planning'\n"
         f"  'I am an investor' → 'I need financial advice'\n\n"
+        f"IMPORTANT RULES:\n"
+        f"  - If their reply is a question (contains '?', starts with how/what/why/when/where/can/is/do/will), respond with NONE.\n"
+        f"  - If their reply is an objection, concern, complaint, or clearly unrelated, respond with NONE.\n"
+        f"  - Only map to an option if the user is CLEARLY and UNAMBIGUOUSLY selecting that exact option.\n"
+        f"  - For options like 'I'd like to get in touch', only match if the user explicitly says they want contact/callback/consultation — NOT if they're asking a question about trust, pricing, or anything else.\n\n"
         f"If their reply maps to an option, respond with ONLY the exact option text.\n"
-        f"If their reply is an objection, complaint, question, or clearly unrelated, respond with NONE."
+        f"Otherwise, respond with NONE."
     )
     try:
         response = await client.messages.create(

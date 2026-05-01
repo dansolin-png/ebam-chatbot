@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { startSession, sendLLMMessage, getChatConfig } from './api.js'
 
+function getWsBase() {
+  const tag = document.currentScript || document.querySelector('script[data-api]')
+  if (tag && tag.dataset.api) {
+    const base = tag.dataset.api.replace(/\/$/, '')
+    return base.replace(/^http/, 'ws')
+  }
+  if (window.EBAMChat && window.EBAMChat.apiBase) {
+    return window.EBAMChat.apiBase.replace(/\/$/, '').replace(/^http/, 'ws')
+  }
+  return 'ws://localhost:8000'
+}
+const WS_BASE = getWsBase()
+
 const NAVY     = '#0d1b2a'
 const NAVY_MID = '#162032'
 const NAVY_LT  = '#1e2d40'
@@ -35,10 +48,22 @@ export default function ChatWidget() {
   const [isTyping, setIsTyping]   = useState(false)
   const [started, setStarted]     = useState(false)
   const [isListening, setIsListening] = useState(false)
-  const bottomRef = useRef(null)
-  const bodyRef   = useRef(null)
-  const inputRef  = useRef(null)
-  const recognitionRef = useRef(null)
+
+  // Human handoff state
+  const [mode, setMode]           = useState('bot')  // 'bot' | 'waiting' | 'human'
+  const [agentName, setAgentName] = useState('')
+  const [agentTyping, setAgentTyping] = useState(false)
+
+  const bottomRef       = useRef(null)
+  const bodyRef         = useRef(null)
+  const inputRef        = useRef(null)
+  const recognitionRef  = useRef(null)
+  const wsRef           = useRef(null)
+  const sessionIdRef    = useRef(null)
+  const handoffTimerRef = useRef(null)
+
+  useEffect(() => { sessionIdRef.current = sessionId }, [sessionId])
+  useEffect(() => () => { wsRef.current?.close(); clearTimeout(handoffTimerRef.current) }, [])
 
   const voiceSupported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
@@ -81,6 +106,49 @@ export default function ChatWidget() {
     }
   }, [open])
 
+  function connectWebSocket(sid) {
+    const ws = new WebSocket(`${WS_BASE}/ws?role=user&session_id=${sid}`)
+    wsRef.current = ws
+
+    // 60-second timeout — if no agent joins, fall back gracefully
+    handoffTimerRef.current = setTimeout(() => {
+      if (wsRef.current === ws) {
+        ws.close()
+        wsRef.current = null
+        setMode('bot')
+        setMessages(prev => [...prev, {
+          role: 'system',
+          content: 'No agents are available right now. Our team will reach out to you by email within 24 hours.',
+        }])
+        setQuickReplies(null)
+      }
+    }, 60000)
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      if (data.type === 'agent_joined') {
+        clearTimeout(handoffTimerRef.current)
+        setMode('human')
+        setAgentName(data.agent_name)
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'system', content: `${data.agent_name} has joined the chat.` }])
+      } else if (data.type === 'message' && data.from === 'agent') {
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'agent', content: data.text, senderName: data.sender_name }])
+      } else if (data.type === 'typing') {
+        setAgentTyping(data.is_typing)
+      } else if (data.type === 'agent_left') {
+        clearTimeout(handoffTimerRef.current)
+        setMode('bot')
+        setAgentName('')
+        setAgentTyping(false)
+        setMessages(prev => [...prev, { role: 'system', content: data.message || 'The agent has left the chat.' }])
+        ws.close()
+        wsRef.current = null
+      }
+    }
+  }
+
   async function handleSelectAudience(type) {
     if (!config) return
     setAudience(type)
@@ -107,12 +175,30 @@ export default function ChatWidget() {
 
   async function submit(text) {
     if (!text || isTyping) return
+
+    if (mode === 'human') {
+      setMessages(prev => [...prev, { role: 'user', content: text }])
+      setInputValue('')
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'sendMessage', text, session_id: sessionIdRef.current }))
+      }
+      return
+    }
+
     setMessages(prev => [...prev, { role: 'user', content: text }])
     setQuickReplies(null)
     setIsTyping(true)
     try {
       const res = await sendLLMMessage(sessionId, text, sessionState)
       if (res.session_state !== undefined) setSessionState(res.session_state)
+
+      if (res.is_handoff) {
+        addBot(res.message, null)
+        setMode('waiting')
+        connectWebSocket(sessionId)
+        return
+      }
+
       addBot(res.message, res.options)
       if (res.is_end) setQuickReplies(null)
     } catch {
@@ -123,9 +209,11 @@ export default function ChatWidget() {
   }
 
   function handleRestart() {
+    clearTimeout(handoffTimerRef.current)
+    wsRef.current?.close(); wsRef.current = null
     setMessages([]); setQuickReplies(null); setAudience(null)
     setSessionId(null); setSessionState(null); setInputValue(''); setIsTyping(false)
-    setStarted(false); setConfig(null)
+    setStarted(false); setConfig(null); setMode('bot'); setAgentName('')
     setTimeout(() => {
       setStarted(true)
       getChatConfig().then(cfg => {
@@ -138,6 +226,7 @@ export default function ChatWidget() {
   const botName     = config?.bot_name     || 'Avatar Marketing Assistant'
   const botSubtitle = config?.bot_subtitle || 'Evidence Based Advisor Marketing'
   const disclaimer  = config?.disclaimer   || ''
+  const agentInitials = (agentName || 'A').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
 
   return (
     <div>
@@ -146,14 +235,19 @@ export default function ChatWidget() {
           {/* Header */}
           <div style={s.header}>
             <div className="ebam-avatar-wrap">
-              <BotAvatar config={config} style={s.avatarIcon} className="ebam-avatar-inner" />
+              {mode === 'human'
+                ? <div style={{ ...s.avatarIcon, background: 'linear-gradient(135deg,#2e7d52,#4caf7d)', color: '#fff', fontSize: 12, fontWeight: 700 }}>{agentInitials}</div>
+                : <BotAvatar config={config} style={s.avatarIcon} className="ebam-avatar-inner" />
+              }
             </div>
             <div style={{ flex: 1 }}>
               <div style={s.headerTitle}>{botName}</div>
-              <div style={s.headerSub}>{botSubtitle}</div>
+              <div style={s.headerSub}>{mode === 'human' ? `Live Agent: ${agentName}` : botSubtitle}</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-              <div style={s.statusDot}>Online</div>
+              <div style={{ ...s.statusDot, color: mode === 'human' ? '#f59e0b' : mode === 'waiting' ? '#94a3b8' : '#5dba8a' }}>
+                {mode === 'human' ? 'Live' : mode === 'waiting' ? 'Finding...' : 'Online'}
+              </div>
               <button onClick={handleRestart} style={s.restartBtn} title="Restart">↺</button>
             </div>
           </div>
@@ -165,12 +259,19 @@ export default function ChatWidget() {
 
           {/* Messages */}
           <div ref={bodyRef} style={s.body}>
-            {messages.map((msg, i) =>
-              msg.role === 'greeting'
-                ? <GreetingMsg key={i} content={msg.content} selected={!!audience} onSelect={handleSelectAudience} config={config} />
-                : <Msg key={i} role={msg.role} content={msg.content} config={config} />
+            {messages.map((msg, i) => {
+              if (msg.role === 'greeting') return <GreetingMsg key={i} content={msg.content} selected={!!audience} onSelect={handleSelectAudience} config={config} />
+              if (msg.role === 'system') return <SystemMsg key={i} content={msg.content} />
+              if (msg.role === 'agent') return <AgentMsg key={i} content={msg.content} senderName={msg.senderName || agentName} />
+              return <Msg key={i} role={msg.role} content={msg.content} config={config} />
+            })}
+            {mode === 'waiting' && (
+              <div style={{ ...s.row, alignSelf: 'flex-start' }}>
+                <div style={{ ...s.avAI, background: 'rgba(201,168,76,0.12)', fontSize: 13 }}>⏳</div>
+                <div style={{ ...s.bubAI, color: 'rgba(248,246,241,0.5)', fontStyle: 'italic' }}>Looking for an available agent...</div>
+              </div>
             )}
-            {isTyping && (
+            {isTyping && mode === 'bot' && (
               <div style={{ ...s.row, alignSelf: 'flex-start' }}>
                 <BotAvatar config={config} style={s.avAI} />
                 <div style={s.typing}>
@@ -180,7 +281,17 @@ export default function ChatWidget() {
                 </div>
               </div>
             )}
-            {!isTyping && quickReplies && (
+            {agentTyping && mode === 'human' && (
+              <div style={{ ...s.row, alignSelf: 'flex-start' }}>
+                <div style={{ ...s.avAI, background: 'linear-gradient(135deg,#2e7d52,#4caf7d)', color: '#fff', fontSize: 9, fontWeight: 700 }}>{agentInitials}</div>
+                <div style={s.typing}>
+                  <span style={{ ...s.dot, animationDelay: '0ms', background: '#4caf7d' }} />
+                  <span style={{ ...s.dot, animationDelay: '200ms', background: '#4caf7d' }} />
+                  <span style={{ ...s.dot, animationDelay: '400ms', background: '#4caf7d' }} />
+                </div>
+              </div>
+            )}
+            {!isTyping && quickReplies && mode === 'bot' && (
               <div style={s.qrs}>
                 {quickReplies.map((qr, i) => (
                   <button key={i} style={s.qrBtn} onClick={() => submit(qr)}>{qr}</button>
@@ -190,19 +301,34 @@ export default function ChatWidget() {
             <div ref={bottomRef} />
           </div>
 
+          {/* Persistent handoff actions — shown during free LLM conversation */}
+          {mode === 'bot' && sessionState?.current_state === 'llm_chat' && !isTyping && (
+            <div style={s.handoffBar}>
+              <button style={s.handoffBtn} onClick={() => submit("I'd like to get in touch")}>
+                Schedule a call
+              </button>
+              <button style={{ ...s.handoffBtn, ...s.handoffBtnPrimary }} onClick={() => submit('Connect me with a real person')}>
+                Chat with a real person
+              </button>
+            </div>
+          )}
+
           {/* Footer */}
           <div style={s.footer}>
             <textarea
               ref={inputRef}
               style={s.input}
               value={inputValue}
-              placeholder="Type your question here..."
+              placeholder={mode === 'waiting' ? 'Waiting for agent...' : mode === 'human' ? 'Message agent...' : 'Type your question here...'}
               rows={1}
-              disabled={!audience || isTyping}
+              disabled={!audience || isTyping || mode === 'waiting'}
               onInput={e => {
                 setInputValue(e.target.value)
                 e.target.style.height = 'auto'
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                if (mode === 'human' && wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'typing', is_typing: true, session_id: sessionIdRef.current }))
+                }
               }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(inputValue.trim()); setInputValue('') } }}
             />
@@ -246,6 +372,25 @@ export default function ChatWidget() {
         .ebam-avatar-inner{animation:ebam-pulse 2.4s ease-in-out infinite}
         .ebam-qr:hover{background:rgba(201,168,76,0.12)!important;border-color:#c9a84c!important}
       `}</style>
+    </div>
+  )
+}
+
+function SystemMsg({ content }) {
+  return (
+    <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'rgba(201,168,76,0.6)', padding: '4px 0' }}>
+      — {content} —
+    </div>
+  )
+}
+
+function AgentMsg({ content, senderName }) {
+  const name = senderName || 'Agent'
+  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  return (
+    <div style={{ display:'flex', gap:9, maxWidth:'88%', alignSelf:'flex-start' }}>
+      <div style={{ width:30, height:30, borderRadius:'50%', background:'linear-gradient(135deg,#2e7d52,#4caf7d)', color:'#fff', fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:3 }}>{initials}</div>
+      <div style={{ background:'#192e22', border:'1px solid rgba(76,175,125,0.2)', borderRadius:'4px 14px 14px 14px', padding:'9px 13px', fontSize:'0.82rem', lineHeight:1.55, color:'rgba(248,246,241,0.92)', fontWeight:300 }}>{content}</div>
     </div>
   )
 }
@@ -322,6 +467,9 @@ const s = {
   dot:        { width:7, height:7, background:GOLD, borderRadius:'50%', opacity:.4, display:'inline-block', animation:'ebam-t 1.2s ease-in-out infinite' },
   qrs:        { display:'flex', flexWrap:'wrap', gap:7, marginTop:2 },
   qrBtn:      { background:'transparent', border:'1px solid rgba(201,168,76,0.35)', color:GOLD_LT, padding:'6px 12px', borderRadius:20, fontSize:'0.77rem', cursor:'pointer', transition:'all .2s' },
+  handoffBar: { background:NAVY_LT, borderLeft:'1px solid rgba(201,168,76,0.2)', borderRight:'1px solid rgba(201,168,76,0.2)', padding:'8px 14px', display:'flex', gap:8 },
+  handoffBtn: { flex:1, padding:'7px 10px', borderRadius:10, border:'1px solid rgba(201,168,76,0.35)', background:'transparent', color:GOLD_LT, fontSize:'0.75rem', fontWeight:500, cursor:'pointer', textAlign:'center', transition:'all .2s' },
+  handoffBtnPrimary: { background:`linear-gradient(135deg,rgba(201,168,76,0.18),rgba(201,168,76,0.08))`, borderColor:GOLD },
   footer:     { background:NAVY_LT, border:'1px solid rgba(201,168,76,0.2)', borderTop:'1px solid rgba(201,168,76,0.1)', padding:'10px 14px', display:'flex', gap:8, alignItems:'flex-end' },
   input:      { flex:1, background:NAVY_MID, border:'1px solid rgba(201,168,76,0.2)', borderRadius:10, padding:'9px 12px', color:WHITE, fontFamily:"'DM Sans',sans-serif", fontSize:'0.82rem', fontWeight:300, resize:'none', minHeight:38, maxHeight:120, lineHeight:1.5, outline:'none' },
   micBtn:     { width:38, height:38, background:NAVY_MID, border:'1px solid rgba(201,168,76,0.25)', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .2s' },

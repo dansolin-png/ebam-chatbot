@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
+import { Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import ChatPage from './pages/ChatPage.jsx'
 import AdminPage from './pages/AdminPage.jsx'
 import LeadsPage from './pages/LeadsPage.jsx'
@@ -8,24 +8,40 @@ import LoginPage from './pages/LoginPage.jsx'
 import CompliancePage from './pages/CompliancePage.jsx'
 import HistoricalLeadsPage from './pages/HistoricalLeadsPage.jsx'
 import FAQPage from './pages/FAQPage.jsx'
+import AgentPage from './pages/AgentPage.jsx'
+import ProfilePage from './pages/ProfilePage.jsx'
 
 function useAuth() {
-  const [token, setToken] = useState(() => localStorage.getItem('ebam_token') || '')
-  const [role, setRole]   = useState(() => localStorage.getItem('ebam_role') || '')
-  function login(t, r) { setToken(t); setRole(r) }
+  const [token,       setToken]       = useState(() => localStorage.getItem('ebam_token') || '')
+  const [role,        setRole]        = useState(() => localStorage.getItem('ebam_role') || '')
+  const [username,    setUsername]    = useState(() => localStorage.getItem('ebam_username') || '')
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem('ebam_display_name') || '')
+
+  function login(t, r, u, d) {
+    setToken(t); setRole(r)
+    setUsername(u || ''); setDisplayName(d || u || '')
+    localStorage.setItem('ebam_username', u || '')
+    localStorage.setItem('ebam_display_name', d || u || '')
+  }
   function logout() {
     localStorage.removeItem('ebam_token')
     localStorage.removeItem('ebam_role')
-    setToken(''); setRole('')
+    localStorage.removeItem('ebam_username')
+    localStorage.removeItem('ebam_display_name')
+    setToken(''); setRole(''); setUsername(''); setDisplayName('')
   }
-  return { token, role, login, logout }
+  function updateDisplayName(d) {
+    setDisplayName(d)
+    localStorage.setItem('ebam_display_name', d)
+  }
+  return { token, role, username, displayName, login, logout, updateDisplayName }
 }
 
 export default function App() {
   const location = useLocation()
-  const { token, role, login, logout } = useAuth()
+  const { token, role, username, displayName, login, logout, updateDisplayName } = useAuth()
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
-  const isAdminArea = ['/admin', '/leads', '/users', '/login', '/compliance', '/history', '/faq'].includes(location.pathname)
+  const isAdminArea = ['/admin', '/leads', '/users', '/login', '/compliance', '/history', '/faq', '/agent', '/profile'].includes(location.pathname)
 
   if (isEmbed) {
     return (
@@ -50,6 +66,7 @@ export default function App() {
     { path: '/leads', label: 'Leads' },
   ]
   const adminNav = [
+    { path: '/agent',      label: 'Agent Inbox' },
     { path: '/compliance', label: 'Compliance' },
     { path: '/history',    label: 'History' },
     ...(role === 'admin' ? [{ path: '/users', label: 'Users' }] : []),
@@ -107,14 +124,9 @@ export default function App() {
           ))}
         </div>
 
-        {/* Sign out — right */}
-        {isAdminArea && (
-          <button onClick={logout} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 6, padding: '5px 12px', color: 'rgba(255,255,255,0.6)', fontSize: 12.5, cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}
-            onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)' }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)' }}
-          >
-            Sign out
-          </button>
+        {/* Profile dropdown — right */}
+        {isAdminArea && token && (
+          <ProfileDropdown displayName={displayName} username={username} onLogout={logout} />
         )}
       </nav>
 
@@ -128,7 +140,66 @@ export default function App() {
         <Route path="/compliance" element={<CompliancePage />} />
         <Route path="/history"    element={<HistoricalLeadsPage />} />
         <Route path="/faq"        element={<FAQPage />} />
+        <Route path="/agent"      element={<AgentPage displayName={displayName} />} />
+        <Route path="/profile"    element={<ProfilePage username={username} displayName={displayName} onUpdate={updateDisplayName} />} />
       </Routes>
+    </div>
+  )
+}
+
+function ProfileDropdown({ displayName, username, onLogout }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const initial = (displayName || username || 'A')[0].toUpperCase()
+  const label   = displayName || username
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'}
+        onMouseLeave={e => !open && (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}
+      >
+        <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#c9a84c,#e0c070)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#0d1b2a' }}>
+          {initial}
+        </div>
+        <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginLeft: 2 }}>▾</span>
+      </button>
+
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 180, zIndex: 1000, overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>{label}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>@{username}</div>
+          </div>
+          <button
+            onClick={() => { setOpen(false); navigate('/profile') }}
+            style={{ width: '100%', padding: '10px 16px', background: 'none', border: 'none', textAlign: 'left', fontSize: 13, color: '#1e293b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <span>👤</span> Edit profile
+          </button>
+          <button
+            onClick={() => { setOpen(false); onLogout() }}
+            style={{ width: '100%', padding: '10px 16px', background: 'none', border: 'none', borderTop: '1px solid #f1f5f9', textAlign: 'left', fontSize: 13, color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#fef2f2'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <span>→</span> Sign out
+          </button>
+        </div>
+      )}
     </div>
   )
 }

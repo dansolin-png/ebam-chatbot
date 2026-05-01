@@ -16,8 +16,12 @@ export async function startSession(audience) {
   return post('/start', { audience })
 }
 
-export async function sendMessage(sessionId, userMessage) {
-  return post('/message', { session_id: sessionId, user_message: userMessage })
+export async function sendMessage(sessionId, userMessage, sessionState = null) {
+  return post('/message', {
+    session_id: sessionId,
+    user_message: userMessage,
+    ...(sessionState ? { session_state: sessionState } : {}),
+  })
 }
 
 export async function getChatConfig() {

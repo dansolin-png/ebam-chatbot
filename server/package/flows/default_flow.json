@@ -1,0 +1,141 @@
+{
+  "start": {
+    "state_id": "start",
+    "type": "choice",
+    "message": "Hi! I'm here to help connect you with the right financial expertise. Who best describes you?",
+    "options": ["I need financial advice", "I'm a CPA looking to partner"],
+    "transitions": {
+      "I need financial advice": "advisor_concern",
+      "I'm a CPA looking to partner": "cpa_intro"
+    },
+    "fallback": "handle_objection"
+  },
+  "advisor_concern": {
+    "state_id": "advisor_concern",
+    "type": "choice",
+    "message": "What's your biggest financial concern right now?",
+    "capture": "concern",
+    "options": ["Retirement planning", "Investment strategy", "Tax optimization", "Wealth building"],
+    "transitions": {
+      "Retirement planning": "ask_timeline",
+      "Investment strategy": "ask_budget",
+      "Tax optimization": "ask_budget",
+      "Wealth building": "ask_budget"
+    },
+    "fallback": "handle_objection"
+  },
+  "ask_timeline": {
+    "state_id": "ask_timeline",
+    "type": "choice",
+    "message": "When are you planning to retire?",
+    "capture": "timeline",
+    "options": ["Within 5 years", "5–10 years", "10+ years"],
+    "transitions": {
+      "Within 5 years": "ask_budget",
+      "5–10 years": "ask_budget",
+      "10+ years": "ask_budget"
+    },
+    "fallback": "handle_objection"
+  },
+  "ask_budget": {
+    "state_id": "ask_budget",
+    "type": "choice",
+    "message": "What's your approximate investable asset range?",
+    "capture": "budget",
+    "options": ["Under $100K", "$100K – $500K", "$500K – $1M", "Over $1M"],
+    "transitions": {
+      "Under $100K": "ask_name",
+      "$100K – $500K": "ask_name",
+      "$500K – $1M": "ask_name",
+      "Over $1M": "ask_name"
+    },
+    "fallback": "handle_objection"
+  },
+  "ask_name": {
+    "state_id": "ask_name",
+    "type": "input",
+    "message": "Great! To connect you with the right advisor, I need a few quick details. What's your name?",
+    "capture": "name",
+    "next": "ask_email",
+    "fallback": "handle_objection"
+  },
+  "ask_email": {
+    "state_id": "ask_email",
+    "type": "input",
+    "message": "What's the best email address to reach you?",
+    "capture": "email",
+    "next": "ask_phone",
+    "fallback": "handle_objection"
+  },
+  "ask_phone": {
+    "state_id": "ask_phone",
+    "type": "input",
+    "message": "And your phone number? (You can skip this if you prefer.)",
+    "capture": "phone",
+    "optional": true,
+    "next": "end_advisor",
+    "fallback": "end_advisor"
+  },
+  "end_advisor": {
+    "state_id": "end_advisor",
+    "type": "end",
+    "message": "Thank you! A certified financial advisor will reach out within 24 hours. We look forward to helping you build the financial future you deserve.",
+    "user_type": "advisor"
+  },
+  "cpa_intro": {
+    "state_id": "cpa_intro",
+    "type": "choice",
+    "message": "Great to meet you! What kind of partnership are you most interested in?",
+    "capture": "cpa_interest",
+    "options": ["Client referrals", "Co-advisory services", "Strategic partnership"],
+    "transitions": {
+      "Client referrals": "cpa_firm_size",
+      "Co-advisory services": "cpa_firm_size",
+      "Strategic partnership": "cpa_firm_size"
+    },
+    "fallback": "handle_objection"
+  },
+  "cpa_firm_size": {
+    "state_id": "cpa_firm_size",
+    "type": "choice",
+    "message": "How many clients does your firm serve annually?",
+    "capture": "firm_size",
+    "options": ["Under 50", "50–200", "200–500", "500+"],
+    "transitions": {
+      "Under 50": "cpa_ask_name",
+      "50–200": "cpa_ask_name",
+      "200–500": "cpa_ask_name",
+      "500+": "cpa_ask_name"
+    },
+    "fallback": "handle_objection"
+  },
+  "cpa_ask_name": {
+    "state_id": "cpa_ask_name",
+    "type": "input",
+    "message": "Excellent! Let's set up a conversation. What's your name?",
+    "capture": "name",
+    "next": "cpa_ask_email",
+    "fallback": "handle_objection"
+  },
+  "cpa_ask_email": {
+    "state_id": "cpa_ask_email",
+    "type": "input",
+    "message": "What's your business email?",
+    "capture": "email",
+    "next": "end_cpa",
+    "fallback": "handle_objection"
+  },
+  "end_cpa": {
+    "state_id": "end_cpa",
+    "type": "end",
+    "message": "Wonderful! Our partnership team will reach out within 24 hours to discuss how we can grow together and better serve your clients.",
+    "user_type": "cpa"
+  },
+  "handle_objection": {
+    "state_id": "handle_objection",
+    "type": "llm",
+    "prompt_template": "You are a professional financial advisory chatbot assistant. The user said: '{{input}}'. Respond empathetically and professionally to address their concern. Keep it concise (2-3 sentences). Then gently guide them back to the conversation.",
+    "next": "return_to_previous",
+    "fallback": "start"
+  }
+}

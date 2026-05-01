@@ -29,14 +29,43 @@ _session = boto3.Session(
 )
 _dynamodb = _session.resource("dynamodb")
 
+# ---------------------------------------------------------------------------
+# Table prefix — set DYNAMO_TABLE_PREFIX=ebam-dev- in .env for local dev.
+# In Lambda (prod) the env var is NOT set, so the prefix defaults to "ebam-"
+# which hits the prod tables as before.
+#
+# SAFETY GUARD: if running locally (not Lambda) and no dev prefix is set,
+# refuse to start. This prevents an accidental local run hitting prod tables.
+# ---------------------------------------------------------------------------
+_TABLE_PREFIX = os.getenv("DYNAMO_TABLE_PREFIX", "")
+
+if not _is_lambda:
+    if not _TABLE_PREFIX:
+        raise RuntimeError(
+            "\n\n*** SAFETY BLOCK ***\n"
+            "DYNAMO_TABLE_PREFIX is not set in your .env file.\n"
+            "Set it to 'ebam-dev-' to use the dev database:\n"
+            "  DYNAMO_TABLE_PREFIX=ebam-dev-\n"
+            "This prevents accidental writes to the production database.\n"
+        )
+    if _TABLE_PREFIX == "ebam-":
+        raise RuntimeError(
+            "\n\n*** SAFETY BLOCK ***\n"
+            "DYNAMO_TABLE_PREFIX=ebam- points to the PRODUCTION database.\n"
+            "Use 'ebam-dev-' for local development.\n"
+        )
+
+def _tbl(suffix: str):
+    return _dynamodb.Table(f"{_TABLE_PREFIX}{suffix}")
+
 # Table references
-tbl_sessions            = _dynamodb.Table("ebam-sessions")
-tbl_messages            = _dynamodb.Table("ebam-messages")
-tbl_leads               = _dynamodb.Table("ebam-leads")
-tbl_flow_configs        = _dynamodb.Table("ebam-flow-configs")
-tbl_chatbot_config      = _dynamodb.Table("ebam-chatbot-config")
-tbl_admin_users         = _dynamodb.Table("ebam-admin-users")
-tbl_config_history      = _dynamodb.Table("ebam-config-history")
+tbl_sessions            = _tbl("sessions")
+tbl_messages            = _tbl("messages")
+tbl_leads               = _tbl("leads")
+tbl_flow_configs        = _tbl("flow-configs")
+tbl_chatbot_config      = _tbl("chatbot-config")
+tbl_admin_users         = _tbl("admin-users")
+tbl_config_history      = _tbl("config-history")
 
 
 def now_iso() -> str:
@@ -56,12 +85,12 @@ def get_session(session_id: str) -> dict | None:
     return r.get("Item")
 
 
-def create_session(session_id: str, user_type: str) -> dict:
+def create_session(session_id: str, user_type: str, collected_data: dict = None) -> dict:
     item = {
         "session_id":        session_id,
         "current_state":     "start",
         "previous_state":    None,
-        "collected_data":    {},
+        "collected_data":    collected_data or {},
         "user_type":         user_type,
         "is_complete":       False,
         "created_at":        now_iso(),
@@ -269,6 +298,14 @@ def update_admin_user_password(username: str, password_hash: str):
         Key={"username": username},
         UpdateExpression="SET password_hash = :h",
         ExpressionAttributeValues={":h": password_hash},
+    )
+
+
+def update_admin_user_display_name(username: str, display_name: str):
+    tbl_admin_users.update_item(
+        Key={"username": username},
+        UpdateExpression="SET display_name = :d",
+        ExpressionAttributeValues={":d": display_name},
     )
 
 

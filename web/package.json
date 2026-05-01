@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:widget": "vite build --config vite.widget.config.js",
+    "build:widget:dev": "VITE_API_BASE_URL='' vite build --config vite.widget.config.js && cp dist-widget/widget.js public/widget.js",
     "preview": "vite preview"
   },
   "dependencies": {
